@@ -1,0 +1,66 @@
+{
+  "omim": {
+    "searchResponse": {
+      "search": "+(neuropathy neuronopathy)",
+      "totalResults": 2,
+      "startIndex": 0,
+      "endIndex": 1,
+      "entryList": [
+        {
+          "entry": {
+            "prefix": "#",
+            "mimNumber": 118220,
+            "status": "live",
+            "titles": {
+              "preferredTitle": "CHARCOT-MARIE-TOOTH DISEASE, DEMYELINATING, TYPE 1A; CMT1A"
+            },
+            "geneMapList": [
+              {
+                "geneMap": {
+                  "mimNumber": 601097,
+                  "geneSymbols": "PMP22, CMT1A, DSS",
+                  "approvedGeneSymbols": "PMP22",
+                  "geneName": "Peripheral myelin protein 22",
+                  "cytoLocation": "17p12",
+                  "chromosomeSymbol": "17",
+                  "phenotypeMapList": [
+                    {
+                      "phenotypeMap": {
+                        "mimNumber": 601097,
+                        "phenotype": "Charcot-Marie-Tooth disease, type 1A",
+                        "phenotypeMimNumber": 118220,
+                        "phenotypeMappingKey": 3,
+                        "phenotypeInheritance": "Autosomal dominant",
+                        "phenotypicSeriesNumber": "PS118220"
+                      }
+                    },
+                    {
+                      "phenotypeMap": {
+                        "mimNumber": 601097,
+                        "phenotype": "Dejerine-Sottas disease",
+                        "phenotypeMimNumber": 145900,
+                        "phenotypeMappingKey": 3,
+                        "phenotypeInheritance": "Autosomal dominant; Autosomal recessive",
+                        "phenotypicSeriesNumber": ""
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        },
+        {
+          "entry": {
+            "prefix": "*",
+            "mimNumber": 162400,
+            "status": "live",
+            "titles": {
+              "preferredTitle": "NEURONOPATHY, DISTAL HEREDITARY MOTOR, EXAMPLE"
+            }
+          }
+        }
+      ]
+    }
+  }
+}
