@@ -25,3 +25,44 @@ def save_api_key(config_path, api_key):
     parser["omim"] = {"api_key": api_key.strip()}
     with open(config_path, "w", encoding="utf-8") as config_file:
         parser.write(config_file)
+
+
+def quote_term(term):
+    """Wrap a term in quotes if it contains a space, so OMIM treats it as a phrase."""
+    term = term.strip()
+    if " " in term:
+        return '"' + term + '"'
+    return term
+
+
+def build_query(any_of, must_include, exclude):
+    """Build an OMIM query string from three lists of terms.
+
+    any_of: entries may contain any of these (an OR group, but required as a group)
+    must_include: entries must contain each of these
+    exclude: entries must not contain any of these
+    """
+    parts = []
+
+    clean_any_of = []
+    for term in any_of:
+        term = term.strip()
+        if term != "":
+            clean_any_of.append(quote_term(term))
+    if clean_any_of:
+        parts.append("+(" + " ".join(clean_any_of) + ")")
+
+    for term in must_include:
+        term = term.strip()
+        if term != "":
+            parts.append("+" + quote_term(term))
+
+    for term in exclude:
+        term = term.strip()
+        if term != "":
+            parts.append("-" + quote_term(term))
+
+    if not parts:
+        raise ValueError("Enter at least one search word.")
+
+    return " ".join(parts)
