@@ -1,0 +1,30 @@
+# Credentials — never commit
+config.ini
+config.json
+.env
+*.key
+apikey*.txt
+
+# Run output — contains OMIM data (copyrighted, restricted redistribution)
+results/
+
+# OMIM bulk download files — licensed data, not ours to redistribute
+*.txt
+!requirements.txt
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
