@@ -162,6 +162,58 @@ def page_starts(total_results, max_results, page_size=20):
     return starts
 
 
+def probe_count(client, query):
+    """Ask OMIM how many results a query has, cheaply (no includes)."""
+    payload = client.search(query, start=0, limit=1)
+    search_response = payload.get("searchResponse", {})
+    return search_response.get("totalResults", 0)
+
+
+def fetch_entries(client, query, max_results):
+    """Fetch entries for a query, paging with include=geneMap.
+
+    Returns (entries, raw_responses, complete). If a quota stop or repeated
+    error interrupts paging, returns whatever was gathered with complete=False.
+    """
+    # Make first request with include=geneMap to get both totalResults and first page
+    try:
+        payload = client.search(query, start=0, limit=20, include="geneMap")
+    except (QuotaExhausted, OmimError):
+        return [], [], False
+
+    search_response = payload.get("searchResponse", {})
+    total = search_response.get("totalResults", 0)
+
+    # Get all page start offsets and determine which ones we still need
+    starts = page_starts(total, max_results)
+
+    entries = []
+    raw_responses = [payload]
+    complete = True
+
+    # Extract entries from first page
+    entry_list = search_response.get("entryList", [])
+    for item in entry_list:
+        entries.append(item.get("entry", {}))
+
+    # Fetch remaining pages (skip start=0 since we already have it)
+    for start in starts:
+        if start == 0:
+            continue
+        try:
+            payload = client.search(query, start=start, limit=20, include="geneMap")
+        except (QuotaExhausted, OmimError):
+            complete = False
+            break
+        raw_responses.append(payload)
+        search_response = payload.get("searchResponse", {})
+        entry_list = search_response.get("entryList", [])
+        for item in entry_list:
+            entries.append(item.get("entry", {}))
+
+    return entries, raw_responses, complete
+
+
 def gene_map_of(entry):
     """Return the entry's first gene map dict, or an empty dict if none."""
     gene_map_list = entry.get("geneMapList")

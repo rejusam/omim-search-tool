@@ -215,3 +215,39 @@ def test_entry_to_phenotype_rows_gene_only_entry_empty():
     entries = _load_entries()
     rows = omim_search.entry_to_phenotype_rows(entries[1])
     assert rows == []
+
+
+def _search_payload(total, entries):
+    return {
+        "omim": {
+            "searchResponse": {
+                "totalResults": total,
+                "entryList": [{"entry": entry} for entry in entries],
+            }
+        }
+    }
+
+
+def test_probe_count_reads_total_results():
+    client, _ = _client([FakeResponse(200, _search_payload(137, []))])
+    assert omim_search.probe_count(client, "+(neuropathy)") == 137
+
+
+def test_fetch_entries_single_page_complete():
+    entries = [{"mimNumber": 1}, {"mimNumber": 2}]
+    client, _ = _client([FakeResponse(200, _search_payload(2, entries))])
+    got, raw, complete = omim_search.fetch_entries(client, "+(x)", max_results=None)
+    assert [e["mimNumber"] for e in got] == [1, 2]
+    assert complete is True
+    assert len(raw) == 1
+
+
+def test_fetch_entries_stops_on_quota_and_reports_incomplete():
+    page_one = _search_payload(60, [{"mimNumber": 1}])
+    client, _ = _client([
+        FakeResponse(200, page_one),   # probe reuse not assumed; first fetch page
+        FakeResponse(429),             # second page hits quota
+    ])
+    got, raw, complete = omim_search.fetch_entries(client, "+(x)", max_results=None)
+    assert complete is False
+    assert len(got) == 1  # partial results kept
