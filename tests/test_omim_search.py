@@ -104,13 +104,17 @@ class FakeResponse:
 
 class FakeSession:
     def __init__(self, responses):
-        # responses: a list of FakeResponse, returned in order
+        # responses: a list of FakeResponse (or Exception instances to raise),
+        # returned/raised in order
         self._responses = list(responses)
         self.calls = []
 
     def get(self, url, params=None, headers=None, timeout=None):
         self.calls.append({"url": url, "params": params, "headers": headers})
-        return self._responses.pop(0)
+        item = self._responses.pop(0)
+        if isinstance(item, Exception):
+            raise item
+        return item
 
 
 def _client(responses):
@@ -161,6 +165,39 @@ def test_request_500_then_200_succeeds():
     result = client.request("status", {})
     assert result == {"ok": 1}
     assert len(session.calls) == 2
+
+
+def test_request_connection_error_then_200_succeeds():
+    import requests
+
+    client, session = _client([
+        requests.exceptions.ConnectionError("boom"),
+        FakeResponse(200, {"omim": {"ok": 1}}),
+    ])
+    result = client.request("status", {})
+    assert result == {"ok": 1}
+    assert len(session.calls) == 2
+
+
+def test_request_connection_error_always_raises_omimerror_after_three_attempts():
+    import pytest
+    import requests
+
+    client, session = _client([
+        requests.exceptions.ConnectionError("boom"),
+        requests.exceptions.Timeout("timed out"),
+        requests.exceptions.ConnectionError("boom again"),
+    ])
+    with pytest.raises(omim_search.OmimError):
+        client.request("status", {})
+    assert len(session.calls) == 3
+
+
+def test_request_404_returns_empty_payload_without_retry():
+    client, session = _client([FakeResponse(404)])
+    result = client.request("status", {})
+    assert result == {}
+    assert len(session.calls) == 1
 
 
 def test_search_builds_expected_path_and_params():
@@ -218,6 +255,32 @@ def test_entry_to_phenotype_rows_gene_only_entry_empty():
     entries = _load_entries()
     rows = omim_search.entry_to_phenotype_rows(entries[1])
     assert rows == []
+
+
+def test_entry_to_row_missing_mim_number_has_empty_url():
+    entry = {"titles": {"preferredTitle": "NO NUMBER ENTRY"}}
+    row = omim_search.entry_to_row(entry, rank=1)
+    assert row["mim_number"] == ""
+    assert row["omim_url"] == ""
+
+
+def test_entry_to_phenotype_rows_missing_phenotype_mim_has_empty_url():
+    entry = {
+        "mimNumber": 100100,
+        "titles": {"preferredTitle": "TEST ENTRY"},
+        "geneMapList": [{
+            "geneMap": {
+                "phenotypeMapList": [{
+                    "phenotypeMap": {"phenotype": "Some condition"},
+                }],
+            },
+        }],
+    }
+    rows = omim_search.entry_to_phenotype_rows(entry)
+    assert len(rows) == 1
+    assert rows[0]["phenotype_mim_number"] == ""
+    assert rows[0]["phenotype_url"] == ""
+    assert rows[0]["entry_url"] == "https://omim.org/entry/100100"
 
 
 def _search_payload(total, entries):
@@ -337,6 +400,32 @@ def test_write_xlsx_preserves_gene_symbol_as_text(tmp_path):
     value_cell = sheet.cell(row=2, column=symbol_col)
     assert value_cell.value == "SEPT9"
     assert value_cell.number_format == "@"
+
+
+def test_write_xlsx_omim_url_is_hyperlinked(tmp_path):
+    path = tmp_path / "results.xlsx"
+    entry_rows, phenotype_rows = _sample_rows()
+    omim_search.write_xlsx(path, entry_rows, phenotype_rows, {"Query": "+(x)"})
+    workbook = openpyxl.load_workbook(path)
+    sheet = workbook["Entries"]
+    header = [cell.value for cell in sheet[1]]
+    url_col = header.index("omim_url") + 1
+    cell = sheet.cell(row=2, column=url_col)
+    assert cell.hyperlink is not None
+    assert cell.hyperlink.target == "https://omim.org/entry/613008"
+
+
+def test_write_xlsx_blank_url_is_not_hyperlinked(tmp_path):
+    path = tmp_path / "results.xlsx"
+    entry_rows, phenotype_rows = _sample_rows()
+    entry_rows[0]["omim_url"] = ""
+    omim_search.write_xlsx(path, entry_rows, phenotype_rows, {"Query": "+(x)"})
+    workbook = openpyxl.load_workbook(path)
+    sheet = workbook["Entries"]
+    header = [cell.value for cell in sheet[1]]
+    url_col = header.index("omim_url") + 1
+    cell = sheet.cell(row=2, column=url_col)
+    assert cell.hyperlink is None
 
 
 def test_write_run_creates_all_four_files(tmp_path):

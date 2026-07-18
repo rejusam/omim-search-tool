@@ -31,6 +31,9 @@ PHENOTYPE_FIELDS = [
 # Columns whose values are gene symbols and must be stored as text so Excel
 # does not convert names like SEPT9 or MARCH1 into dates.
 TEXT_COLUMNS = {"gene_symbols", "approved_gene_symbol"}
+# Columns whose values are OMIM web links and should be written as clickable
+# hyperlinks rather than plain text.
+URL_COLUMNS = {"omim_url", "entry_url", "phenotype_url"}
 
 
 class OmimError(Exception):
@@ -61,8 +64,10 @@ class OmimClient:
     def request(self, path, params):
         """Make one GET request and return the parsed 'omim' payload.
 
-        Retries server/network errors up to 3 attempts total. Raises
-        AuthFailed on 401 and QuotaExhausted on 429 (no retry on either).
+        Retries server errors and real network errors (connection failures,
+        timeouts) up to 3 attempts total. Raises AuthFailed on 401 and
+        QuotaExhausted on 429 (no retry on either). A 404 means the data does
+        not exist, so it returns an empty payload rather than retrying.
         """
         url = self.base_url + "/" + path
         headers = {
@@ -75,9 +80,19 @@ class OmimClient:
         attempt = 1
         while True:
             self.sleep(self.pause_seconds)
-            response = self.session.get(
-                url, params=params, headers=headers, timeout=60
-            )
+            try:
+                response = self.session.get(
+                    url, params=params, headers=headers, timeout=60
+                )
+            except requests.exceptions.RequestException as exc:
+                if attempt >= max_attempts:
+                    raise OmimError(
+                        "A network error occurred talking to OMIM."
+                    ) from exc
+                self.sleep(2 ** attempt)  # 2s, then 4s
+                attempt = attempt + 1
+                continue
+
             status = response.status_code
 
             if status == 200:
@@ -87,8 +102,10 @@ class OmimClient:
                 raise AuthFailed("The API key was rejected.")
             if status == 429:
                 raise QuotaExhausted("The API key's request quota is exhausted.")
+            if status == 404:
+                return {}
 
-            # 400, 404, 500 and anything else: retry a few times, then give up.
+            # 400, 500 and anything else: retry a few times, then give up.
             if attempt >= max_attempts:
                 raise OmimError("OMIM returned HTTP " + str(status) + ".")
             self.sleep(2 ** attempt)  # 2s, then 4s
@@ -277,6 +294,11 @@ def entry_to_row(entry, rank):
         if inheritance != "" and inheritance not in inheritance_values:
             inheritance_values.append(inheritance)
 
+    if mim_number == "":
+        omim_url = ""
+    else:
+        omim_url = "https://omim.org/entry/" + str(mim_number)
+
     row = {
         "rank": rank,
         "mim_number": mim_number,
@@ -291,7 +313,7 @@ def entry_to_row(entry, rank):
         "phenotype_count": len(phenotype_names),
         "phenotypes": " | ".join(phenotype_names),
         "inheritance": " | ".join(inheritance_values),
-        "omim_url": "https://omim.org/entry/" + str(mim_number),
+        "omim_url": omim_url,
     }
     return row
 
@@ -303,9 +325,18 @@ def entry_to_phenotype_rows(entry):
     gene_map = gene_map_of(entry)
     phenotype_maps = _phenotype_maps_of(entry)
 
+    if mim_number == "":
+        entry_url = ""
+    else:
+        entry_url = "https://omim.org/entry/" + str(mim_number)
+
     rows = []
     for phenotype_map in phenotype_maps:
         phenotype_mim = phenotype_map.get("phenotypeMimNumber", "")
+        if phenotype_mim == "":
+            phenotype_url = ""
+        else:
+            phenotype_url = "https://omim.org/entry/" + str(phenotype_mim)
         row = {
             "mim_number": mim_number,
             "preferred_title": titles.get("preferredTitle", ""),
@@ -317,8 +348,8 @@ def entry_to_phenotype_rows(entry):
             "phenotype_mapping_key": phenotype_map.get("phenotypeMappingKey", ""),
             "phenotype_inheritance": phenotype_map.get("phenotypeInheritance", ""),
             "phenotypic_series_number": phenotype_map.get("phenotypicSeriesNumber", ""),
-            "entry_url": "https://omim.org/entry/" + str(mim_number),
-            "phenotype_url": "https://omim.org/entry/" + str(phenotype_mim),
+            "entry_url": entry_url,
+            "phenotype_url": phenotype_url,
         }
         rows.append(row)
     return rows
@@ -380,6 +411,10 @@ def _write_sheet(sheet, fieldnames, rows):
             if name in TEXT_COLUMNS:
                 cell.value = str(value)
                 cell.number_format = "@"
+            elif name in URL_COLUMNS and value != "":
+                cell.value = value
+                cell.hyperlink = value
+                cell.style = "Hyperlink"
             else:
                 cell.value = value
         row_index = row_index + 1
@@ -487,20 +522,36 @@ def ask_guided_query():
 
 
 def ask_max_results(total):
-    """Ask how many results to fetch. Return an int cap or None for all."""
+    """Ask how many results to fetch.
+
+    Returns "cancel", a positive int cap, or None to mean fetch all. Invalid
+    input is always re-prompted; it never silently falls through to "fetch
+    all", since that would defeat the purpose of the quota guard.
+    """
     estimated_requests = (total + 19) // 20
     print()
     print("OMIM found " + str(total) + " matching entries.")
     print("Fetching them all needs about " + str(estimated_requests) + " requests.")
-    answer = input("Fetch [a]ll, a [n]umber, or [c]ancel? ").strip().lower()
-    if answer == "c":
-        return "cancel"
-    if answer == "n":
-        number = input("How many? ").strip()
-        if number.isdigit():
+    while True:
+        answer = input("Fetch [a]ll, a [n]umber, or [c]ancel? ").strip().lower()
+        if answer == "a":
+            return None
+        if answer == "c":
+            return "cancel"
+        if answer == "n":
+            return _ask_result_count()
+        print("Please type a, n, or c.")
+
+
+def _ask_result_count():
+    """Ask for a positive result count. Return the int, or "cancel"."""
+    while True:
+        number = input("How many? ").strip().lower()
+        if number == "c":
+            return "cancel"
+        if number.isdigit() and int(number) >= 1:
             return int(number)
-        return None
-    return None
+        print("Please enter a whole number of 1 or more, or c to cancel.")
 
 
 def main():
@@ -532,6 +583,9 @@ def main():
         return
     except QuotaExhausted:
         print("The API key's quota is exhausted. Try again later.")
+        return
+    except OmimError:
+        print("Could not reach OMIM right now. Check your internet connection and try again.")
         return
 
     if total == 0:

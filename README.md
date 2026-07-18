@@ -70,11 +70,20 @@ Guided search [g] or expert raw query [e]?
 Type `g` and press Enter — this is the mode almost everyone should use (see
 section 9 for the expert option).
 
-You'll then see three prompts, one after another:
+You'll then see two lines of instructions, followed by three prompts you
+answer one after another. The first two lines are instructions; you only
+type answers at the three prompts below.
+
+Instructions (nothing to type here):
 
 ```
 Enter search words. Separate several words with commas.
 Leave a line blank to skip it.
+```
+
+The three prompts:
+
+```
 Find entries containing ANY of these words:
 Words that MUST appear:
 Words to EXCLUDE:
