@@ -4,6 +4,82 @@ Run this file directly to use it. See README.md for the operator guide.
 """
 
 import configparser
+import time
+import requests
+
+
+class OmimError(Exception):
+    """Something went wrong talking to the OMIM API."""
+
+
+class AuthFailed(OmimError):
+    """The API key was rejected (HTTP 401)."""
+
+
+class QuotaExhausted(OmimError):
+    """The API key's request quota is used up (HTTP 429)."""
+
+
+class OmimClient:
+    """A small, throttled, retrying client for the OMIM API."""
+
+    def __init__(self, api_key, base_url="https://api.omim.org/api",
+                 session=None, pause_seconds=0.3, sleep=time.sleep):
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        if session is None:
+            session = requests.Session()
+        self.session = session
+        self.pause_seconds = pause_seconds
+        self.sleep = sleep
+
+    def request(self, path, params):
+        """Make one GET request and return the parsed 'omim' payload.
+
+        Retries server/network errors up to 3 attempts total. Raises
+        AuthFailed on 401 and QuotaExhausted on 429 (no retry on either).
+        """
+        url = self.base_url + "/" + path
+        headers = {
+            "ApiKey": self.api_key,
+            "Accept-Encoding": "gzip",
+            "Accept": "application/json",
+        }
+
+        max_attempts = 3
+        attempt = 1
+        while True:
+            self.sleep(self.pause_seconds)
+            response = self.session.get(
+                url, params=params, headers=headers, timeout=60
+            )
+            status = response.status_code
+
+            if status == 200:
+                body = response.json()
+                return body.get("omim", {})
+            if status == 401:
+                raise AuthFailed("The API key was rejected.")
+            if status == 429:
+                raise QuotaExhausted("The API key's request quota is exhausted.")
+
+            # 400, 404, 500 and anything else: retry a few times, then give up.
+            if attempt >= max_attempts:
+                raise OmimError("OMIM returned HTTP " + str(status) + ".")
+            self.sleep(2 ** attempt)  # 2s, then 4s
+            attempt = attempt + 1
+
+    def search(self, query, start, limit, include=None):
+        """Run an entry search and return the 'omim' payload."""
+        params = {
+            "search": query,
+            "start": start,
+            "limit": limit,
+            "format": "json",
+        }
+        if include is not None:
+            params["include"] = include
+        return self.request("entry/search", params)
 
 
 def load_api_key(config_path):

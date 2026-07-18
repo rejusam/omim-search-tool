@@ -76,3 +76,85 @@ def test_page_starts_capped_by_max_results():
 
 def test_page_starts_max_larger_than_total():
     assert omim_search.page_starts(10, 500) == [0]
+
+
+class FakeResponse:
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self._payload = payload if payload is not None else {}
+
+    def json(self):
+        return self._payload
+
+
+class FakeSession:
+    def __init__(self, responses):
+        # responses: a list of FakeResponse, returned in order
+        self._responses = list(responses)
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append({"url": url, "params": params, "headers": headers})
+        return self._responses.pop(0)
+
+
+def _client(responses):
+    session = FakeSession(responses)
+    client = omim_search.OmimClient(
+        "TESTKEY", session=session, pause_seconds=0, sleep=lambda seconds: None
+    )
+    return client, session
+
+
+def test_request_sends_api_key_header():
+    client, session = _client([FakeResponse(200, {"omim": {"ok": True}})])
+    client.request("status", {})
+    assert session.calls[0]["headers"]["ApiKey"] == "TESTKEY"
+
+
+def test_request_returns_omim_payload():
+    client, _ = _client([FakeResponse(200, {"omim": {"value": 42}})])
+    result = client.request("status", {})
+    assert result == {"value": 42}
+
+
+def test_request_401_raises_authfailed():
+    import pytest
+    client, _ = _client([FakeResponse(401)])
+    with pytest.raises(omim_search.AuthFailed):
+        client.request("status", {})
+
+
+def test_request_429_raises_quotaexhausted_without_retry():
+    import pytest
+    client, session = _client([FakeResponse(429)])
+    with pytest.raises(omim_search.QuotaExhausted):
+        client.request("status", {})
+    assert len(session.calls) == 1  # not retried
+
+
+def test_request_500_retries_then_raises():
+    import pytest
+    client, session = _client([FakeResponse(500), FakeResponse(500), FakeResponse(500)])
+    with pytest.raises(omim_search.OmimError):
+        client.request("status", {})
+    assert len(session.calls) == 3  # 3 attempts
+
+
+def test_request_500_then_200_succeeds():
+    client, session = _client([FakeResponse(500), FakeResponse(200, {"omim": {"ok": 1}})])
+    result = client.request("status", {})
+    assert result == {"ok": 1}
+    assert len(session.calls) == 2
+
+
+def test_search_builds_expected_path_and_params():
+    client, session = _client([FakeResponse(200, {"omim": {"searchResponse": {}}})])
+    client.search("+(neuropathy)", start=0, limit=20, include="geneMap")
+    call = session.calls[0]
+    assert call["url"].endswith("/entry/search")
+    assert call["params"]["search"] == "+(neuropathy)"
+    assert call["params"]["start"] == 0
+    assert call["params"]["limit"] == 20
+    assert call["params"]["include"] == "geneMap"
+    assert call["params"]["format"] == "json"
