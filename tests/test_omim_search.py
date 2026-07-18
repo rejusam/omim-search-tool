@@ -52,3 +52,27 @@ def test_build_query_all_empty_raises():
     import pytest
     with pytest.raises(ValueError):
         omim_search.build_query([], [], [])
+
+
+def test_page_starts_single_page():
+    assert omim_search.page_starts(5, None) == [0]
+
+
+def test_page_starts_exact_multiple():
+    assert omim_search.page_starts(40, None) == [0, 20]
+
+
+def test_page_starts_partial_last_page():
+    assert omim_search.page_starts(45, None) == [0, 20, 40]
+
+
+def test_page_starts_zero_results():
+    assert omim_search.page_starts(0, None) == []
+
+
+def test_page_starts_capped_by_max_results():
+    assert omim_search.page_starts(1000, 30) == [0, 20]
+
+
+def test_page_starts_max_larger_than_total():
+    assert omim_search.page_starts(10, 500) == [0]

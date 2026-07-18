@@ -66,3 +66,21 @@ def build_query(any_of, must_include, exclude):
         raise ValueError("Enter at least one search word.")
 
     return " ".join(parts)
+
+
+def page_starts(total_results, max_results, page_size=20):
+    """Return the list of 'start' offsets needed to fetch the results.
+
+    total_results: how many results OMIM says there are
+    max_results: cap on how many to fetch, or None for all
+    """
+    wanted = total_results
+    if max_results is not None and max_results < wanted:
+        wanted = max_results
+
+    starts = []
+    start = 0
+    while start < wanted:
+        starts.append(start)
+        start = start + page_size
+    return starts
