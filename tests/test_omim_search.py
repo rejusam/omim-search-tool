@@ -1,3 +1,4 @@
+import csv
 import json
 import pathlib
 
@@ -251,3 +252,39 @@ def test_fetch_entries_stops_on_quota_and_reports_incomplete():
     got, raw, complete = omim_search.fetch_entries(client, "+(x)", max_results=None)
     assert complete is False
     assert len(got) == 1  # partial results kept
+
+
+def test_slugify_collapses_and_lowercases():
+    assert omim_search.slugify("+(Neuropathy Neuronopathy)") == "neuropathy_neuronopathy"
+
+
+def test_slugify_truncates_long_input():
+    slug = omim_search.slugify("a" * 100)
+    assert len(slug) <= 40
+
+
+def test_make_run_folder_creates_unique_directory(tmp_path):
+    first = omim_search.make_run_folder(tmp_path, "+(x)")
+    second = omim_search.make_run_folder(tmp_path, "+(x)")
+    assert first.exists()
+    assert second.exists()
+    assert first != second
+
+
+def test_write_csv_writes_header_and_rows(tmp_path):
+    path = tmp_path / "entries.csv"
+    rows = [{"a": "1", "b": "SEPT9"}, {"a": "2", "b": "MARCH1"}]
+    omim_search.write_csv(path, rows, ["a", "b"])
+    with open(path, encoding="utf-8-sig", newline="") as csv_file:
+        read_rows = list(csv.DictReader(csv_file))
+    assert read_rows[0]["b"] == "SEPT9"
+    assert read_rows[1]["b"] == "MARCH1"
+
+
+def test_write_json_round_trips(tmp_path):
+    path = tmp_path / "raw.json"
+    omim_search.write_json(path, [{"page": 1}], {"query": "+(x)"})
+    with open(path, encoding="utf-8") as json_file:
+        loaded = json.load(json_file)
+    assert loaded["metadata"]["query"] == "+(x)"
+    assert loaded["responses"] == [{"page": 1}]

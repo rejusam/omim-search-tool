@@ -4,6 +4,11 @@ Run this file directly to use it. See README.md for the operator guide.
 """
 
 import configparser
+import csv
+import datetime
+import json
+import pathlib
+import re
 import time
 import requests
 
@@ -297,3 +302,46 @@ def entry_to_phenotype_rows(entry):
         }
         rows.append(row)
     return rows
+
+
+def slugify(text):
+    """Turn a query into a short, filesystem-safe slug."""
+    lowered = text.lower()
+    replaced = re.sub(r"[^a-z0-9]+", "_", lowered)
+    trimmed = replaced.strip("_")
+    if len(trimmed) > 40:
+        trimmed = trimmed[:40].strip("_")
+    return trimmed
+
+
+def make_run_folder(results_dir, query):
+    """Create and return a unique folder for this run's output."""
+    results_dir = pathlib.Path(results_dir)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
+    slug = slugify(query)
+    base_name = "omim_" + slug + "_" + timestamp
+
+    folder = results_dir / base_name
+    suffix = 2
+    while folder.exists():
+        folder = results_dir / (base_name + "_" + str(suffix))
+        suffix = suffix + 1
+
+    folder.mkdir(parents=True)
+    return folder
+
+
+def write_csv(path, rows, fieldnames):
+    """Write rows to a UTF-8-with-BOM csv so Excel reads it correctly."""
+    with open(path, "w", encoding="utf-8-sig", newline="") as csv_file:
+        writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+
+
+def write_json(path, raw_responses, metadata):
+    """Write the raw API responses plus a metadata block."""
+    document = {"metadata": metadata, "responses": raw_responses}
+    with open(path, "w", encoding="utf-8") as json_file:
+        json.dump(document, json_file, indent=2)
