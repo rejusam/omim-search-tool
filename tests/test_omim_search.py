@@ -1,4 +1,16 @@
+import json
+import pathlib
+
 import omim_search
+
+FIXTURE_PATH = pathlib.Path(__file__).parent / "fixtures" / "search_response.json"
+
+
+def _load_entries():
+    with open(FIXTURE_PATH, encoding="utf-8") as fixture_file:
+        payload = json.load(fixture_file)
+    wrapped = payload["omim"]["searchResponse"]["entryList"]
+    return [item["entry"] for item in wrapped]
 
 
 def test_load_api_key_missing_file_returns_none(tmp_path):
@@ -158,3 +170,48 @@ def test_search_builds_expected_path_and_params():
     assert call["params"]["limit"] == 20
     assert call["params"]["include"] == "geneMap"
     assert call["params"]["format"] == "json"
+
+
+def test_entry_to_row_core_fields():
+    entries = _load_entries()
+    row = omim_search.entry_to_row(entries[0], rank=1)
+    assert row["rank"] == 1
+    assert row["mim_number"] == 118220
+    assert row["prefix"] == "#"
+    assert row["status"] == "live"
+    assert "CHARCOT-MARIE-TOOTH" in row["preferred_title"]
+    assert row["approved_gene_symbol"] == "PMP22"
+    assert row["cyto_location"] == "17p12"
+    assert row["omim_url"] == "https://omim.org/entry/118220"
+
+
+def test_entry_to_row_phenotype_summary():
+    entries = _load_entries()
+    row = omim_search.entry_to_row(entries[0], rank=1)
+    assert row["phenotype_count"] == 2
+    assert "Charcot-Marie-Tooth disease, type 1A" in row["phenotypes"]
+    assert " | " in row["phenotypes"]
+
+
+def test_entry_to_row_gene_only_entry_has_blank_gene_fields():
+    entries = _load_entries()
+    row = omim_search.entry_to_row(entries[1], rank=2)
+    assert row["mim_number"] == 162400
+    assert row["approved_gene_symbol"] == ""
+    assert row["phenotype_count"] == 0
+    assert row["phenotypes"] == ""
+
+
+def test_entry_to_phenotype_rows_one_per_phenotype():
+    entries = _load_entries()
+    rows = omim_search.entry_to_phenotype_rows(entries[0])
+    assert len(rows) == 2
+    assert rows[0]["phenotype"] == "Charcot-Marie-Tooth disease, type 1A"
+    assert rows[0]["phenotype_inheritance"] == "Autosomal dominant"
+    assert rows[0]["phenotype_url"] == "https://omim.org/entry/118220"
+
+
+def test_entry_to_phenotype_rows_gene_only_entry_empty():
+    entries = _load_entries()
+    rows = omim_search.entry_to_phenotype_rows(entries[1])
+    assert rows == []

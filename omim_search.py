@@ -160,3 +160,88 @@ def page_starts(total_results, max_results, page_size=20):
         starts.append(start)
         start = start + page_size
     return starts
+
+
+def gene_map_of(entry):
+    """Return the entry's first gene map dict, or an empty dict if none."""
+    gene_map_list = entry.get("geneMapList")
+    if not gene_map_list:
+        return {}
+    return gene_map_list[0].get("geneMap", {})
+
+
+def _phenotype_maps_of(entry):
+    """Return the list of phenotypeMap dicts for an entry (possibly empty)."""
+    gene_map = gene_map_of(entry)
+    phenotype_map_list = gene_map.get("phenotypeMapList")
+    if not phenotype_map_list:
+        return []
+    result = []
+    for item in phenotype_map_list:
+        phenotype_map = item.get("phenotypeMap", {})
+        result.append(phenotype_map)
+    return result
+
+
+def entry_to_row(entry, rank):
+    """Flatten one entry into a Sheet 1 (Entries) row."""
+    mim_number = entry.get("mimNumber", "")
+    titles = entry.get("titles", {})
+    gene_map = gene_map_of(entry)
+    phenotype_maps = _phenotype_maps_of(entry)
+
+    phenotype_names = []
+    inheritance_values = []
+    for phenotype_map in phenotype_maps:
+        name = phenotype_map.get("phenotype", "")
+        if name != "":
+            phenotype_names.append(name)
+        inheritance = phenotype_map.get("phenotypeInheritance", "")
+        if inheritance != "" and inheritance not in inheritance_values:
+            inheritance_values.append(inheritance)
+
+    row = {
+        "rank": rank,
+        "mim_number": mim_number,
+        "prefix": entry.get("prefix", ""),
+        "preferred_title": titles.get("preferredTitle", ""),
+        "status": entry.get("status", ""),
+        "gene_symbols": gene_map.get("geneSymbols", ""),
+        "approved_gene_symbol": gene_map.get("approvedGeneSymbols", ""),
+        "gene_name": gene_map.get("geneName", ""),
+        "cyto_location": gene_map.get("cytoLocation", ""),
+        "chromosome": gene_map.get("chromosomeSymbol", ""),
+        "phenotype_count": len(phenotype_names),
+        "phenotypes": " | ".join(phenotype_names),
+        "inheritance": " | ".join(inheritance_values),
+        "omim_url": "https://omim.org/entry/" + str(mim_number),
+    }
+    return row
+
+
+def entry_to_phenotype_rows(entry):
+    """Flatten one entry into zero or more Sheet 2 (Phenotypes) rows."""
+    mim_number = entry.get("mimNumber", "")
+    titles = entry.get("titles", {})
+    gene_map = gene_map_of(entry)
+    phenotype_maps = _phenotype_maps_of(entry)
+
+    rows = []
+    for phenotype_map in phenotype_maps:
+        phenotype_mim = phenotype_map.get("phenotypeMimNumber", "")
+        row = {
+            "mim_number": mim_number,
+            "preferred_title": titles.get("preferredTitle", ""),
+            "gene_symbols": gene_map.get("geneSymbols", ""),
+            "approved_gene_symbol": gene_map.get("approvedGeneSymbols", ""),
+            "cyto_location": gene_map.get("cytoLocation", ""),
+            "phenotype": phenotype_map.get("phenotype", ""),
+            "phenotype_mim_number": phenotype_mim,
+            "phenotype_mapping_key": phenotype_map.get("phenotypeMappingKey", ""),
+            "phenotype_inheritance": phenotype_map.get("phenotypeInheritance", ""),
+            "phenotypic_series_number": phenotype_map.get("phenotypicSeriesNumber", ""),
+            "entry_url": "https://omim.org/entry/" + str(mim_number),
+            "phenotype_url": "https://omim.org/entry/" + str(phenotype_mim),
+        }
+        rows.append(row)
+    return rows
