@@ -9,6 +9,7 @@ import datetime
 import json
 import pathlib
 import re
+import sys
 import time
 import requests
 
@@ -419,3 +420,158 @@ def write_run(folder, entry_rows, phenotype_rows, raw_responses, search_info):
     write_csv(folder / "entries.csv", entry_rows, ENTRY_FIELDS)
     write_csv(folder / "phenotypes.csv", phenotype_rows, PHENOTYPE_FIELDS)
     write_json(folder / "raw.json", raw_responses, search_info)
+
+
+def split_terms(text):
+    """Split a comma-separated line into a list of non-empty, trimmed terms."""
+    terms = []
+    for piece in text.split(","):
+        piece = piece.strip()
+        if piece != "":
+            terms.append(piece)
+    return terms
+
+
+def build_search_info(query, mode, total, entry_rows, phenotype_rows, complete):
+    """Assemble the Sheet 3 / metadata dictionary."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    if complete:
+        complete_text = "yes"
+    else:
+        complete_text = "no - stopped early (quota or error); results are partial"
+    info = {
+        "Query sent to OMIM": query,
+        "Search mode": mode,
+        "Run at": timestamp,
+        "Total results reported by OMIM": total,
+        "Entries written (Sheet 1)": len(entry_rows),
+        "Phenotype rows written (Sheet 2)": len(phenotype_rows),
+        "Run complete": complete_text,
+        "Licence": (
+            "Contains OMIM data (c) Johns Hopkins University. Not for "
+            "redistribution. Do not forward these files onward without "
+            "checking OMIM's terms."
+        ),
+    }
+    return info
+
+
+CONFIG_PATH = pathlib.Path(__file__).parent / "config.ini"
+RESULTS_DIR = pathlib.Path(__file__).parent / "results"
+
+
+def get_api_key():
+    """Return a usable API key, prompting and saving it on first run."""
+    key = load_api_key(CONFIG_PATH)
+    if key is not None:
+        return key
+    print("No API key saved yet.")
+    print("Paste your OMIM API key (from the entitlement email) and press Enter.")
+    key = input("API key: ").strip()
+    while key == "":
+        key = input("API key (cannot be blank): ").strip()
+    save_api_key(CONFIG_PATH, key)
+    print("Saved. You will not be asked again on this computer.")
+    return key
+
+
+def ask_guided_query():
+    """Ask the guided questions and return an OMIM query string."""
+    print()
+    print("Enter search words. Separate several words with commas.")
+    print("Leave a line blank to skip it.")
+    any_of = split_terms(input("Find entries containing ANY of these words: "))
+    must = split_terms(input("Words that MUST appear: "))
+    exclude = split_terms(input("Words to EXCLUDE: "))
+    return build_query(any_of, must, exclude)
+
+
+def ask_max_results(total):
+    """Ask how many results to fetch. Return an int cap or None for all."""
+    estimated_requests = (total + 19) // 20
+    print()
+    print("OMIM found " + str(total) + " matching entries.")
+    print("Fetching them all needs about " + str(estimated_requests) + " requests.")
+    answer = input("Fetch [a]ll, a [n]umber, or [c]ancel? ").strip().lower()
+    if answer == "c":
+        return "cancel"
+    if answer == "n":
+        number = input("How many? ").strip()
+        if number.isdigit():
+            return int(number)
+        return None
+    return None
+
+
+def main():
+    """Run one interactive OMIM search."""
+    print("OMIM keyword search")
+    print("===================")
+    api_key = get_api_key()
+    client = OmimClient(api_key)
+
+    mode_answer = input("Guided search [g] or expert raw query [e]? ").strip().lower()
+    if mode_answer == "e":
+        query = input("Raw OMIM query: ").strip()
+        mode = "expert"
+    else:
+        query = ask_guided_query()
+        mode = "guided"
+
+    print()
+    print("Query: " + query)
+    confirm = input("Run this search? [y/n] ").strip().lower()
+    if confirm != "y":
+        print("Cancelled.")
+        return
+
+    try:
+        total = probe_count(client, query)
+    except AuthFailed:
+        print("The API key was rejected. Delete config.ini and try again.")
+        return
+    except QuotaExhausted:
+        print("The API key's quota is exhausted. Try again later.")
+        return
+
+    if total == 0:
+        print("No results. Try fewer or broader words.")
+        return
+
+    decision = ask_max_results(total)
+    if decision == "cancel":
+        print("Cancelled.")
+        return
+    max_results = decision
+
+    print("Fetching...")
+    entries, raw_responses, complete = fetch_entries(client, query, max_results)
+
+    entry_rows = []
+    phenotype_rows = []
+    rank = 1
+    for entry in entries:
+        entry_rows.append(entry_to_row(entry, rank))
+        phenotype_rows.extend(entry_to_phenotype_rows(entry))
+        rank = rank + 1
+
+    search_info = build_search_info(
+        query, mode, total, entry_rows, phenotype_rows, complete
+    )
+    folder = make_run_folder(RESULTS_DIR, query)
+    write_run(folder, entry_rows, phenotype_rows, raw_responses, search_info)
+
+    print()
+    if not complete:
+        print("NOTE: the run stopped early; results are partial (see Search info).")
+    print("Saved " + str(len(entry_rows)) + " entries to:")
+    print("  " + str(folder / "results.xlsx"))
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        print()
+        print("Stopped. Any results already fetched were not saved.")
+        sys.exit(1)

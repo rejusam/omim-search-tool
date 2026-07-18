@@ -348,3 +348,23 @@ def test_write_run_creates_all_four_files(tmp_path):
     assert (folder / "entries.csv").exists()
     assert (folder / "phenotypes.csv").exists()
     assert (folder / "raw.json").exists()
+
+
+def test_split_terms_splits_on_commas_and_trims():
+    assert omim_search.split_terms("neuropathy, neuronopathy") == ["neuropathy", "neuronopathy"]
+
+
+def test_split_terms_empty_string_is_empty_list():
+    assert omim_search.split_terms("   ") == []
+
+
+def test_build_search_info_reports_both_row_counts():
+    info = omim_search.build_search_info(
+        query="+(x)", mode="guided", total=50,
+        entry_rows=[{}, {}, {}], phenotype_rows=[{}, {}], complete=True,
+    )
+    assert info["Entries written (Sheet 1)"] == 3
+    assert info["Phenotype rows written (Sheet 2)"] == 2
+    assert info["Total results reported by OMIM"] == 50
+    assert info["Run complete"] == "yes"
+    assert "not for redistribution" in info["Licence"].lower()
