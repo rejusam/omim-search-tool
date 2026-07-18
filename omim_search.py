@@ -12,6 +12,25 @@ import re
 import time
 import requests
 
+from openpyxl import Workbook
+from openpyxl.utils import get_column_letter
+
+
+ENTRY_FIELDS = [
+    "rank", "mim_number", "prefix", "preferred_title", "status",
+    "gene_symbols", "approved_gene_symbol", "gene_name", "cyto_location",
+    "chromosome", "phenotype_count", "phenotypes", "inheritance", "omim_url",
+]
+PHENOTYPE_FIELDS = [
+    "mim_number", "preferred_title", "gene_symbols", "approved_gene_symbol",
+    "cyto_location", "phenotype", "phenotype_mim_number",
+    "phenotype_mapping_key", "phenotype_inheritance",
+    "phenotypic_series_number", "entry_url", "phenotype_url",
+]
+# Columns whose values are gene symbols and must be stored as text so Excel
+# does not convert names like SEPT9 or MARCH1 into dates.
+TEXT_COLUMNS = {"gene_symbols", "approved_gene_symbol"}
+
 
 class OmimError(Exception):
     """Something went wrong talking to the OMIM API."""
@@ -345,3 +364,58 @@ def write_json(path, raw_responses, metadata):
     document = {"metadata": metadata, "responses": raw_responses}
     with open(path, "w", encoding="utf-8") as json_file:
         json.dump(document, json_file, indent=2)
+
+
+def _write_sheet(sheet, fieldnames, rows):
+    """Write a header row and data rows, protecting gene-symbol columns."""
+    for column_index, name in enumerate(fieldnames, start=1):
+        sheet.cell(row=1, column=column_index, value=name)
+
+    row_index = 2
+    for row in rows:
+        for column_index, name in enumerate(fieldnames, start=1):
+            value = row.get(name, "")
+            cell = sheet.cell(row=row_index, column=column_index)
+            if name in TEXT_COLUMNS:
+                cell.value = str(value)
+                cell.number_format = "@"
+            else:
+                cell.value = value
+        row_index = row_index + 1
+
+    sheet.freeze_panes = "A2"
+    last_column = get_column_letter(len(fieldnames))
+    last_row = max(row_index - 1, 1)
+    sheet.auto_filter.ref = "A1:" + last_column + str(last_row)
+
+
+def write_xlsx(path, entry_rows, phenotype_rows, search_info):
+    """Write the three-sheet results workbook."""
+    workbook = Workbook()
+
+    entries_sheet = workbook.active
+    entries_sheet.title = "Entries"
+    _write_sheet(entries_sheet, ENTRY_FIELDS, entry_rows)
+
+    phenotypes_sheet = workbook.create_sheet("Phenotypes")
+    _write_sheet(phenotypes_sheet, PHENOTYPE_FIELDS, phenotype_rows)
+
+    info_sheet = workbook.create_sheet("Search info")
+    info_sheet.cell(row=1, column=1, value="Field")
+    info_sheet.cell(row=1, column=2, value="Value")
+    info_row = 2
+    for label, value in search_info.items():
+        info_sheet.cell(row=info_row, column=1, value=label)
+        info_sheet.cell(row=info_row, column=2, value=str(value))
+        info_row = info_row + 1
+
+    workbook.save(path)
+
+
+def write_run(folder, entry_rows, phenotype_rows, raw_responses, search_info):
+    """Write all four output files into the run folder."""
+    folder = pathlib.Path(folder)
+    write_xlsx(folder / "results.xlsx", entry_rows, phenotype_rows, search_info)
+    write_csv(folder / "entries.csv", entry_rows, ENTRY_FIELDS)
+    write_csv(folder / "phenotypes.csv", phenotype_rows, PHENOTYPE_FIELDS)
+    write_json(folder / "raw.json", raw_responses, search_info)

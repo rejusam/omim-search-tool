@@ -2,6 +2,8 @@ import csv
 import json
 import pathlib
 
+import openpyxl
+
 import omim_search
 
 FIXTURE_PATH = pathlib.Path(__file__).parent / "fixtures" / "search_response.json"
@@ -288,3 +290,61 @@ def test_write_json_round_trips(tmp_path):
         loaded = json.load(json_file)
     assert loaded["metadata"]["query"] == "+(x)"
     assert loaded["responses"] == [{"page": 1}]
+
+
+ENTRY_FIELDS = omim_search.ENTRY_FIELDS
+PHENOTYPE_FIELDS = omim_search.PHENOTYPE_FIELDS
+
+
+def _sample_rows():
+    entry_rows = [{
+        "rank": 1, "mim_number": 613008, "prefix": "#",
+        "preferred_title": "EXAMPLE", "status": "live",
+        "gene_symbols": "SEPT9", "approved_gene_symbol": "SEPT9",
+        "gene_name": "Septin 9", "cyto_location": "17q25.3",
+        "chromosome": "17", "phenotype_count": 1,
+        "phenotypes": "Example phenotype", "inheritance": "Autosomal dominant",
+        "omim_url": "https://omim.org/entry/613008",
+    }]
+    phenotype_rows = [{
+        "mim_number": 613008, "preferred_title": "EXAMPLE",
+        "gene_symbols": "SEPT9", "approved_gene_symbol": "SEPT9",
+        "cyto_location": "17q25.3", "phenotype": "Example phenotype",
+        "phenotype_mim_number": 613008, "phenotype_mapping_key": 3,
+        "phenotype_inheritance": "Autosomal dominant",
+        "phenotypic_series_number": "", "entry_url": "https://omim.org/entry/613008",
+        "phenotype_url": "https://omim.org/entry/613008",
+    }]
+    return entry_rows, phenotype_rows
+
+
+def test_write_xlsx_has_three_named_sheets(tmp_path):
+    path = tmp_path / "results.xlsx"
+    entry_rows, phenotype_rows = _sample_rows()
+    omim_search.write_xlsx(path, entry_rows, phenotype_rows, {"Query": "+(x)"})
+    workbook = openpyxl.load_workbook(path)
+    assert workbook.sheetnames == ["Entries", "Phenotypes", "Search info"]
+
+
+def test_write_xlsx_preserves_gene_symbol_as_text(tmp_path):
+    path = tmp_path / "results.xlsx"
+    entry_rows, phenotype_rows = _sample_rows()
+    omim_search.write_xlsx(path, entry_rows, phenotype_rows, {"Query": "+(x)"})
+    workbook = openpyxl.load_workbook(path)
+    sheet = workbook["Entries"]
+    header = [cell.value for cell in sheet[1]]
+    symbol_col = header.index("approved_gene_symbol") + 1
+    value_cell = sheet.cell(row=2, column=symbol_col)
+    assert value_cell.value == "SEPT9"
+    assert value_cell.number_format == "@"
+
+
+def test_write_run_creates_all_four_files(tmp_path):
+    folder = tmp_path / "run"
+    folder.mkdir()
+    entry_rows, phenotype_rows = _sample_rows()
+    omim_search.write_run(folder, entry_rows, phenotype_rows, [{"page": 1}], {"Query": "+(x)"})
+    assert (folder / "results.xlsx").exists()
+    assert (folder / "entries.csv").exists()
+    assert (folder / "phenotypes.csv").exists()
+    assert (folder / "raw.json").exists()
