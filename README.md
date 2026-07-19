@@ -213,6 +213,11 @@ results folder, or any part of their contents to anyone outside this
 project, and do not post or republish them anywhere. Use them for your own
 review and analysis only.
 
+The tool's own source code is released under the MIT License (see the
+`LICENSE` file). That licence covers this software only. It does **not**
+cover OMIM's data or OMIM's documentation, which remain subject to OMIM's own
+terms as described above.
+
 ## 9. Expert mode (advanced — most people can skip this)
 
 If you know exactly what OMIM query syntax you want to write yourself
