@@ -212,48 +212,97 @@ def test_search_builds_expected_path_and_params():
     assert call["params"]["format"] == "json"
 
 
-def test_entry_to_row_core_fields():
+# The fixture mirrors the real OMIM response shape: a phenotype entry (#)
+# carries phenotypeMapList directly with gene fields embedded in each map;
+# a gene entry (*) carries a geneMap with geneName plus a nested
+# phenotypeMapList; a third entry has neither.
+
+
+def test_entry_to_row_phenotype_entry_core_fields():
     entries = _load_entries()
     row = omim_search.entry_to_row(entries[0], rank=1)
     assert row["rank"] == 1
-    assert row["mim_number"] == 118220
+    assert row["mim_number"] == "100001"
     assert row["prefix"] == "#"
     assert row["status"] == "live"
-    assert "CHARCOT-MARIE-TOOTH" in row["preferred_title"]
-    assert row["approved_gene_symbol"] == "PMP22"
+    assert "EXAMPLE PHENOTYPE ENTRY" in row["preferred_title"]
+    # Phenotype entries embed the gene fields in the phenotype map.
+    assert row["gene_symbols"] == "GENEA, GENEA1, SYNA"
+    assert row["approved_gene_symbol"] == "GENEA"
     assert row["cyto_location"] == "17p12"
-    assert row["omim_url"] == "https://omim.org/entry/118220"
+    assert row["chromosome"] == "17"
+    # geneName only exists on a geneMap, so a phenotype entry has none.
+    assert row["gene_name"] == ""
+    assert row["omim_url"] == "https://omim.org/entry/100001"
 
 
 def test_entry_to_row_phenotype_summary():
     entries = _load_entries()
     row = omim_search.entry_to_row(entries[0], rank=1)
     assert row["phenotype_count"] == 2
-    assert "Charcot-Marie-Tooth disease, type 1A" in row["phenotypes"]
+    assert "Example phenotype, type 1A" in row["phenotypes"]
     assert " | " in row["phenotypes"]
+    assert "Autosomal dominant" in row["inheritance"]
+    assert "Autosomal recessive" in row["inheritance"]
 
 
-def test_entry_to_row_gene_only_entry_has_blank_gene_fields():
+def test_entry_to_row_gene_entry_reads_gene_map():
     entries = _load_entries()
     row = omim_search.entry_to_row(entries[1], rank=2)
-    assert row["mim_number"] == 162400
+    assert row["mim_number"] == "100002"
+    assert row["prefix"] == "*"
+    assert row["gene_symbols"] == "GENEB, GENEB1"
+    assert row["approved_gene_symbol"] == "GENEB"
+    assert row["gene_name"] == "Example gene B protein"
+    assert row["cyto_location"] == "11q13"
+    assert row["chromosome"] == "11"
+    # Gene entries carry their phenotypes nested inside the geneMap.
+    assert row["phenotype_count"] == 1
+    assert row["phenotypes"] == "Example phenotype from gene B"
+
+
+def test_entry_to_row_no_map_entry_has_blank_gene_fields():
+    entries = _load_entries()
+    row = omim_search.entry_to_row(entries[2], rank=3)
+    assert row["mim_number"] == "100003"
+    assert row["gene_symbols"] == ""
     assert row["approved_gene_symbol"] == ""
+    assert row["gene_name"] == ""
     assert row["phenotype_count"] == 0
     assert row["phenotypes"] == ""
 
 
-def test_entry_to_phenotype_rows_one_per_phenotype():
+def test_entry_to_phenotype_rows_phenotype_entry():
     entries = _load_entries()
     rows = omim_search.entry_to_phenotype_rows(entries[0])
     assert len(rows) == 2
-    assert rows[0]["phenotype"] == "Charcot-Marie-Tooth disease, type 1A"
+    assert rows[0]["phenotype"] == "Example phenotype, type 1A"
     assert rows[0]["phenotype_inheritance"] == "Autosomal dominant"
-    assert rows[0]["phenotype_url"] == "https://omim.org/entry/118220"
+    assert rows[0]["phenotype_mim_number"] == "100001"
+    assert rows[0]["phenotype_url"] == "https://omim.org/entry/100001"
+    # Gene fields come from the phenotype map itself here.
+    assert rows[0]["gene_symbols"] == "GENEA, GENEA1, SYNA"
+    assert rows[0]["approved_gene_symbol"] == "GENEA"
+    assert rows[1]["phenotype_inheritance"] == "Autosomal recessive"
 
 
-def test_entry_to_phenotype_rows_gene_only_entry_empty():
+def test_entry_to_phenotype_rows_gene_entry_uses_gene_map_fallback():
     entries = _load_entries()
     rows = omim_search.entry_to_phenotype_rows(entries[1])
+    assert len(rows) == 1
+    assert rows[0]["phenotype"] == "Example phenotype from gene B"
+    assert rows[0]["phenotype_mim_number"] == "300003"
+    assert rows[0]["phenotype_url"] == "https://omim.org/entry/300003"
+    # The nested phenotype map has no gene fields, so they fall back
+    # to the entry's geneMap.
+    assert rows[0]["gene_symbols"] == "GENEB, GENEB1"
+    assert rows[0]["approved_gene_symbol"] == "GENEB"
+    assert rows[0]["cyto_location"] == "11q13"
+
+
+def test_entry_to_phenotype_rows_no_map_entry_empty():
+    entries = _load_entries()
+    rows = omim_search.entry_to_phenotype_rows(entries[2])
     assert rows == []
 
 
@@ -264,16 +313,35 @@ def test_entry_to_row_missing_mim_number_has_empty_url():
     assert row["omim_url"] == ""
 
 
+def test_entry_to_row_tolerates_null_field_values():
+    # OMIM sometimes returns a field present but set to JSON null. This must
+    # not crash the ' | ' join or leave None in a cell.
+    entry = {
+        "mimNumber": "100200",
+        "prefix": "#",
+        "status": "live",
+        "titles": {"preferredTitle": "NULL FIELD ENTRY"},
+        "phenotypeMapList": [
+            {"phenotypeMap": {
+                "phenotype": "Condition with unknown inheritance",
+                "phenotypeInheritance": None,
+                "phenotypeMimNumber": "100200",
+            }},
+        ],
+    }
+    row = omim_search.entry_to_row(entry, rank=1)
+    assert row["inheritance"] == ""
+    assert row["phenotypes"] == "Condition with unknown inheritance"
+    rows = omim_search.entry_to_phenotype_rows(entry)
+    assert rows[0]["phenotype_inheritance"] == ""
+
+
 def test_entry_to_phenotype_rows_missing_phenotype_mim_has_empty_url():
     entry = {
-        "mimNumber": 100100,
+        "mimNumber": "100100",
         "titles": {"preferredTitle": "TEST ENTRY"},
-        "geneMapList": [{
-            "geneMap": {
-                "phenotypeMapList": [{
-                    "phenotypeMap": {"phenotype": "Some condition"},
-                }],
-            },
+        "phenotypeMapList": [{
+            "phenotypeMap": {"phenotype": "Some condition"},
         }],
     }
     rows = omim_search.entry_to_phenotype_rows(entry)

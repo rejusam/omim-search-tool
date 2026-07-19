@@ -256,30 +256,76 @@ def fetch_entries(client, query, max_results):
     return entries, raw_responses, complete
 
 
+def _field(mapping, key):
+    """Return mapping[key] as a safe value: '' for a missing key or a JSON null.
+
+    OMIM sometimes includes a field with a null value rather than omitting it,
+    so a plain .get(key, "") can still return None. This keeps None out of the
+    output cells and out of the ' | ' joins.
+    """
+    value = mapping.get(key)
+    if value is None:
+        return ""
+    return value
+
+
 def gene_map_of(entry):
-    """Return the entry's first gene map dict, or an empty dict if none."""
-    gene_map_list = entry.get("geneMapList")
-    if not gene_map_list:
-        return {}
-    return gene_map_list[0].get("geneMap", {})
+    """Return the dict that holds this entry's gene and location fields, or {}.
+
+    OMIM returns two shapes. Gene entries (prefix *, %, +) carry a 'geneMap'
+    dict. Phenotype entries (prefix #) have no geneMap; instead they keep the
+    gene and location fields inside their first phenotype map. This returns
+    whichever is present so the Entries sheet can show gene columns for both.
+    """
+    gene_map = entry.get("geneMap")
+    if isinstance(gene_map, dict) and gene_map:
+        return gene_map
+    phenotype_map_list = entry.get("phenotypeMapList")
+    if phenotype_map_list:
+        return phenotype_map_list[0].get("phenotypeMap", {})
+    return {}
 
 
 def _phenotype_maps_of(entry):
-    """Return the list of phenotypeMap dicts for an entry (possibly empty)."""
-    gene_map = gene_map_of(entry)
-    phenotype_map_list = gene_map.get("phenotypeMapList")
+    """Return the list of phenotype map dicts for an entry (possibly empty).
+
+    Phenotype entries hold the list directly on the entry as
+    'phenotypeMapList'. Gene entries hold it nested inside their 'geneMap'.
+    This collects from whichever place it lives in.
+    """
+    phenotype_map_list = entry.get("phenotypeMapList")
+    if not phenotype_map_list:
+        gene_map = entry.get("geneMap")
+        if isinstance(gene_map, dict):
+            phenotype_map_list = gene_map.get("phenotypeMapList")
     if not phenotype_map_list:
         return []
     result = []
     for item in phenotype_map_list:
-        phenotype_map = item.get("phenotypeMap", {})
-        result.append(phenotype_map)
+        result.append(item.get("phenotypeMap", {}))
     return result
+
+
+def _gene_field(entry, phenotype_map, key):
+    """Look up one gene or location field for a phenotype row.
+
+    Phenotype entries embed the gene fields inside each phenotype map, so a
+    row prefers its own phenotype map's value. Gene entries keep those fields
+    on the geneMap while the nested phenotype map only carries phenotype data,
+    so fall back to the entry's geneMap when the phenotype map has no value.
+    """
+    value = _field(phenotype_map, key)
+    if value != "":
+        return value
+    gene_map = entry.get("geneMap")
+    if isinstance(gene_map, dict):
+        return _field(gene_map, key)
+    return ""
 
 
 def entry_to_row(entry, rank):
     """Flatten one entry into a Sheet 1 (Entries) row."""
-    mim_number = entry.get("mimNumber", "")
+    mim_number = _field(entry, "mimNumber")
     titles = entry.get("titles", {})
     gene_map = gene_map_of(entry)
     phenotype_maps = _phenotype_maps_of(entry)
@@ -287,10 +333,10 @@ def entry_to_row(entry, rank):
     phenotype_names = []
     inheritance_values = []
     for phenotype_map in phenotype_maps:
-        name = phenotype_map.get("phenotype", "")
+        name = _field(phenotype_map, "phenotype")
         if name != "":
             phenotype_names.append(name)
-        inheritance = phenotype_map.get("phenotypeInheritance", "")
+        inheritance = _field(phenotype_map, "phenotypeInheritance")
         if inheritance != "" and inheritance not in inheritance_values:
             inheritance_values.append(inheritance)
 
@@ -302,14 +348,14 @@ def entry_to_row(entry, rank):
     row = {
         "rank": rank,
         "mim_number": mim_number,
-        "prefix": entry.get("prefix", ""),
-        "preferred_title": titles.get("preferredTitle", ""),
-        "status": entry.get("status", ""),
-        "gene_symbols": gene_map.get("geneSymbols", ""),
-        "approved_gene_symbol": gene_map.get("approvedGeneSymbols", ""),
-        "gene_name": gene_map.get("geneName", ""),
-        "cyto_location": gene_map.get("cytoLocation", ""),
-        "chromosome": gene_map.get("chromosomeSymbol", ""),
+        "prefix": _field(entry, "prefix"),
+        "preferred_title": _field(titles, "preferredTitle"),
+        "status": _field(entry, "status"),
+        "gene_symbols": _field(gene_map, "geneSymbols"),
+        "approved_gene_symbol": _field(gene_map, "approvedGeneSymbols"),
+        "gene_name": _field(gene_map, "geneName"),
+        "cyto_location": _field(gene_map, "cytoLocation"),
+        "chromosome": _field(gene_map, "chromosomeSymbol"),
         "phenotype_count": len(phenotype_names),
         "phenotypes": " | ".join(phenotype_names),
         "inheritance": " | ".join(inheritance_values),
@@ -320,9 +366,8 @@ def entry_to_row(entry, rank):
 
 def entry_to_phenotype_rows(entry):
     """Flatten one entry into zero or more Sheet 2 (Phenotypes) rows."""
-    mim_number = entry.get("mimNumber", "")
+    mim_number = _field(entry, "mimNumber")
     titles = entry.get("titles", {})
-    gene_map = gene_map_of(entry)
     phenotype_maps = _phenotype_maps_of(entry)
 
     if mim_number == "":
@@ -332,22 +377,22 @@ def entry_to_phenotype_rows(entry):
 
     rows = []
     for phenotype_map in phenotype_maps:
-        phenotype_mim = phenotype_map.get("phenotypeMimNumber", "")
+        phenotype_mim = _field(phenotype_map, "phenotypeMimNumber")
         if phenotype_mim == "":
             phenotype_url = ""
         else:
             phenotype_url = "https://omim.org/entry/" + str(phenotype_mim)
         row = {
             "mim_number": mim_number,
-            "preferred_title": titles.get("preferredTitle", ""),
-            "gene_symbols": gene_map.get("geneSymbols", ""),
-            "approved_gene_symbol": gene_map.get("approvedGeneSymbols", ""),
-            "cyto_location": gene_map.get("cytoLocation", ""),
-            "phenotype": phenotype_map.get("phenotype", ""),
+            "preferred_title": _field(titles, "preferredTitle"),
+            "gene_symbols": _gene_field(entry, phenotype_map, "geneSymbols"),
+            "approved_gene_symbol": _gene_field(entry, phenotype_map, "approvedGeneSymbols"),
+            "cyto_location": _gene_field(entry, phenotype_map, "cytoLocation"),
+            "phenotype": _field(phenotype_map, "phenotype"),
             "phenotype_mim_number": phenotype_mim,
-            "phenotype_mapping_key": phenotype_map.get("phenotypeMappingKey", ""),
-            "phenotype_inheritance": phenotype_map.get("phenotypeInheritance", ""),
-            "phenotypic_series_number": phenotype_map.get("phenotypicSeriesNumber", ""),
+            "phenotype_mapping_key": _field(phenotype_map, "phenotypeMappingKey"),
+            "phenotype_inheritance": _field(phenotype_map, "phenotypeInheritance"),
+            "phenotypic_series_number": _field(phenotype_map, "phenotypicSeriesNumber"),
             "entry_url": entry_url,
             "phenotype_url": phenotype_url,
         }
