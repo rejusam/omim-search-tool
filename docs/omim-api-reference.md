@@ -220,6 +220,18 @@ https://api.omim.org/api/entry/referenceList?mimNumber=100100
 
 ### Entry data fields
 
+> **Observed vs documented (verified against a live run, 2026-07-19).** The
+> field tree below follows OMIM's published documentation, but the live
+> `entry/search?include=geneMap` response differs in an important way: an entry
+> does **not** carry a `geneMapList`. Instead each entry has **either** a
+> singular `geneMap` object (gene entries, prefix `*`/`%`/`+` — with `geneName`
+> and a nested `geneMap.phenotypeMapList`) **or** a `phenotypeMapList` directly
+> on the entry (phenotype entries, prefix `#` — with the gene/location fields
+> embedded inside each `phenotypeMap`, and no `geneName`). Some entries have
+> neither. Also, `mimNumber` and `phenotypeMappingKey` are returned as strings,
+> and some fields (e.g. `phenotypeInheritance`) may be JSON `null`. Parse
+> against the observed shape, not this tree.
+
 ```
 omim
   entryList
