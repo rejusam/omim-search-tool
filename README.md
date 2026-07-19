@@ -156,6 +156,14 @@ a gene, with no specific condition attached, appears on the Entries tab but
 will not appear on the Phenotypes tab at all. Neither tab is missing data —
 they are just organized two different ways for two different questions.
 
+**Some cells will be blank, and that is also normal.** OMIM does not hold
+every kind of information for every entry, so a cell is left empty when OMIM
+has nothing to put there. For example, the `gene_name` cell is blank for an
+entry that describes a condition rather than a gene, and the gene and
+inheritance columns are blank for an entry that has no gene or condition data
+recorded. A blank cell means "OMIM has no value here", not "the tool missed
+something".
+
 ## 6. What each column means
 
 **Entries tab and Phenotypes tab both share these columns:**
