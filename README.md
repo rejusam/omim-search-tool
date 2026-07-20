@@ -27,14 +27,16 @@ You only need to do this once on a given computer.
    cd Documents\omim-search
    ```
 
-5. Install the tool's two small dependencies by typing:
+5. Install the tool's dependencies by typing:
 
    ```
    pip install -r requirements.txt
    ```
 
    This downloads and installs everything the tool needs. It only has to be
-   done once per computer, not before every search.
+   done once per computer, not before every search. Expect it to take a
+   minute or two and print a lot of text — that is normal. One of the
+   dependencies is a large one, so a slow connection may take longer.
 
 ## 3. The API key
 
