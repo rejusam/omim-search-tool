@@ -277,14 +277,14 @@ def build_info(input_path, terms, rows, api_key, complete):
     }
 
 
-def _get_config():
+def _get_config(config_path):
     """Return (email, api_key), prompting for and saving the email on first run."""
-    email, api_key = load_ncbi_config(CONFIG_PATH)
+    email, api_key = load_ncbi_config(config_path)
     if email is None:
         print("NCBI asks for a contact email so they can reach you if a search")
         print("misbehaves. It is stored locally and never shared.")
         email = input("Enter a contact email address: ").strip()
-        save_ncbi_config(CONFIG_PATH, email, api_key or "")
+        save_ncbi_config(config_path, email, api_key or "")
     return email, api_key
 
 
@@ -295,7 +295,7 @@ def run(input_path, config_path=None, results_dir=None):
     if results_dir is None:
         results_dir = RESULTS_DIR
 
-    email, api_key = _get_config()
+    email, api_key = _get_config(config_path)
     terms = read_terms(input_path)
     if not terms:
         print("No terms found in the first column of that file.")

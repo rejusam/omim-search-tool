@@ -232,3 +232,22 @@ def test_count_terms_records_error_and_continues():
     assert rows[0]["gap"] == ""
     assert rows[1]["exact_count"] == 7
     assert rows[1]["natural_count"] == 9
+
+
+def test_run_honors_config_path_and_writes_output(tmp_path, monkeypatch):
+    config = tmp_path / "config.ini"
+    config.write_text("[ncbi]\nemail = a@b.com\n", encoding="utf-8")
+    terms_file = tmp_path / "terms.csv"
+    terms_file.write_text("ACONITASE 2\n", encoding="utf-8")
+    results_dir = tmp_path / "results"
+
+    scripted = _ScriptedClient([3, 50])
+    monkeypatch.setattr(pubmed_counts, "PubMedClient", lambda **kwargs: scripted)
+
+    folder = pubmed_counts.run(terms_file, config_path=config, results_dir=results_dir)
+
+    assert folder is not None
+    assert (folder / "counts.csv").exists()
+    assert (folder / "counts.xlsx").exists()
+    text = (folder / "counts.csv").read_text(encoding="utf-8-sig")
+    assert "ACONITASE 2" in text
