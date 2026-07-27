@@ -174,3 +174,66 @@ def save_ncbi_config(config_path, email, api_key):
     parser.set("ncbi", "api_key", (api_key or "").strip())
     with open(config_path, "w", encoding="utf-8") as config_file:
         parser.write(config_file)
+
+
+FIELDS = ["term", "exact_count", "natural_count", "gap", "exact_url", "natural_url"]
+_URL_FIELDS = {"exact_url", "natural_url"}
+
+
+def make_row(term, exact_count, natural_count):
+    """Build one output row; gap is blank unless both counts are numbers."""
+    if isinstance(exact_count, int) and isinstance(natural_count, int):
+        gap = natural_count - exact_count
+    else:
+        gap = ""
+    return {
+        "term": term,
+        "exact_count": exact_count,
+        "natural_count": natural_count,
+        "gap": gap,
+        "exact_url": pubmed_url(exact_query(term)),
+        "natural_url": pubmed_url(natural_query(term)),
+    }
+
+
+def write_xlsx(path, rows, info):
+    """Write a Counts sheet and a Run info sheet."""
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Counts"
+    for column_index, name in enumerate(FIELDS, start=1):
+        sheet.cell(row=1, column=column_index, value=name)
+    row_index = 2
+    for row in rows:
+        for column_index, name in enumerate(FIELDS, start=1):
+            value = row.get(name, "")
+            cell = sheet.cell(row=row_index, column=column_index)
+            if name in _URL_FIELDS and value != "":
+                cell.value = value
+                cell.hyperlink = value
+                cell.style = "Hyperlink"
+            else:
+                cell.value = value
+        row_index = row_index + 1
+    sheet.freeze_panes = "A2"
+    last_column = get_column_letter(len(FIELDS))
+    last_row = max(row_index - 1, 1)
+    sheet.auto_filter.ref = "A1:" + last_column + str(last_row)
+
+    info_sheet = workbook.create_sheet("Run info")
+    info_sheet.cell(row=1, column=1, value="Field")
+    info_sheet.cell(row=1, column=2, value="Value")
+    info_row = 2
+    for label, value in info.items():
+        info_sheet.cell(row=info_row, column=1, value=label)
+        info_sheet.cell(row=info_row, column=2, value=str(value))
+        info_row = info_row + 1
+
+    workbook.save(path)
+
+
+def write_run(folder, rows, info):
+    """Write counts.xlsx and counts.csv into the run folder."""
+    folder = pathlib.Path(folder)
+    write_xlsx(folder / "counts.xlsx", rows, info)
+    write_csv(folder / "counts.csv", rows, FIELDS)

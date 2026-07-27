@@ -173,3 +173,29 @@ def test_save_ncbi_config_preserves_omim_section(tmp_path):
     assert api_key is None
     text = config.read_text(encoding="utf-8")
     assert "omimkey" in text
+
+
+def test_make_row_computes_gap_and_urls():
+    row = pubmed_counts.make_row("ACONITASE 2", 3, 50)
+    assert row["term"] == "ACONITASE 2"
+    assert row["exact_count"] == 3
+    assert row["natural_count"] == 50
+    assert row["gap"] == 47
+    assert row["exact_url"] == pubmed_counts.pubmed_url('"ACONITASE 2"')
+    assert row["natural_url"] == pubmed_counts.pubmed_url("ACONITASE 2")
+
+
+def test_make_row_blank_gap_on_error():
+    row = pubmed_counts.make_row("X", "error", "error")
+    assert row["gap"] == ""
+
+
+def test_write_run_creates_both_files(tmp_path):
+    rows = [pubmed_counts.make_row("ACONITASE 2", 3, 50)]
+    info = {"Input file": "terms.xlsx", "Run complete": "yes"}
+    pubmed_counts.write_run(tmp_path, rows, info)
+    assert (tmp_path / "counts.xlsx").exists()
+    assert (tmp_path / "counts.csv").exists()
+    text = (tmp_path / "counts.csv").read_text(encoding="utf-8-sig")
+    assert "ACONITASE 2" in text
+    assert "term,exact_count,natural_count,gap,exact_url,natural_url" in text
