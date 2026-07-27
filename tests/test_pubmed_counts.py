@@ -30,17 +30,21 @@ def test_read_terms_from_csv_first_column(tmp_path):
     assert terms == ["ABETALIPOPROTEINEMIA", "ACONITASE 2"]
 
 
-def test_exact_query_quotes_the_phrase():
-    assert pubmed_counts.exact_query("ACHALASIA-PROGEROID SYNDROME") == '"ACHALASIA-PROGEROID SYNDROME"'
+def test_normalize_term_replaces_hyphens_with_spaces():
+    assert pubmed_counts.normalize_term("ACHALASIA-PROGEROID SYNDROME") == "ACHALASIA PROGEROID SYNDROME"
 
 
-def test_natural_query_is_unquoted_trimmed():
-    assert pubmed_counts.natural_query("  ACONITASE 2 ") == "ACONITASE 2"
+def test_normalize_term_collapses_and_trims_whitespace():
+    assert pubmed_counts.normalize_term("  YUNIS--VARON   SYNDROME ") == "YUNIS VARON SYNDROME"
+
+
+def test_normalize_term_leaves_plain_term_unchanged():
+    assert pubmed_counts.normalize_term("ABETALIPOPROTEINEMIA") == "ABETALIPOPROTEINEMIA"
 
 
 def test_pubmed_url_encodes_the_query():
-    url = pubmed_counts.pubmed_url('"ACONITASE 2"')
-    assert url == "https://pubmed.ncbi.nlm.nih.gov/?term=%22ACONITASE+2%22"
+    url = pubmed_counts.pubmed_url("ACONITASE 2")
+    assert url == "https://pubmed.ncbi.nlm.nih.gov/?term=ACONITASE+2"
 
 
 class _FakeResponse:
@@ -175,30 +179,28 @@ def test_save_ncbi_config_preserves_omim_section(tmp_path):
     assert "omimkey" in text
 
 
-def test_make_row_computes_gap_and_urls():
-    row = pubmed_counts.make_row("ACONITASE 2", 3, 50)
-    assert row["term"] == "ACONITASE 2"
-    assert row["exact_count"] == 3
-    assert row["natural_count"] == 50
-    assert row["gap"] == 47
-    assert row["exact_url"] == pubmed_counts.pubmed_url('"ACONITASE 2"')
-    assert row["natural_url"] == pubmed_counts.pubmed_url("ACONITASE 2")
+def test_make_row_holds_term_count_and_normalized_search():
+    row = pubmed_counts.make_row("ACHALASIA-PROGEROID SYNDROME", 3)
+    assert row["term"] == "ACHALASIA-PROGEROID SYNDROME"
+    assert row["count"] == 3
+    assert row["search_term"] == "ACHALASIA PROGEROID SYNDROME"
+    assert row["url"] == pubmed_counts.pubmed_url("ACHALASIA PROGEROID SYNDROME")
 
 
-def test_make_row_blank_gap_on_error():
-    row = pubmed_counts.make_row("X", "error", "error")
-    assert row["gap"] == ""
+def test_make_row_keeps_error_count():
+    row = pubmed_counts.make_row("X", "error")
+    assert row["count"] == "error"
 
 
 def test_write_run_creates_both_files(tmp_path):
-    rows = [pubmed_counts.make_row("ACONITASE 2", 3, 50)]
+    rows = [pubmed_counts.make_row("ACONITASE 2", 50)]
     info = {"Input file": "terms.xlsx", "Run complete": "yes"}
     pubmed_counts.write_run(tmp_path, rows, info)
     assert (tmp_path / "counts.xlsx").exists()
     assert (tmp_path / "counts.csv").exists()
     text = (tmp_path / "counts.csv").read_text(encoding="utf-8-sig")
     assert "ACONITASE 2" in text
-    assert "term,exact_count,natural_count,gap,exact_url,natural_url" in text
+    assert "term,count,search_term,url" in text
 
 
 class _ScriptedClient:
@@ -215,23 +217,18 @@ class _ScriptedClient:
         return value
 
 
-def test_count_terms_pairs_exact_then_natural():
-    client = _ScriptedClient([3, 50, 0, 900000])
+def test_count_terms_one_count_per_term():
+    client = _ScriptedClient([3, 900000])
     rows = pubmed_counts.count_terms(client, ["ACONITASE 2", "ACHALASIA PROGEROID SYNDROME"])
-    assert rows[0]["exact_count"] == 3
-    assert rows[0]["natural_count"] == 50
-    assert rows[1]["exact_count"] == 0
-    assert rows[1]["natural_count"] == 900000
+    assert rows[0]["count"] == 3
+    assert rows[1]["count"] == 900000
 
 
 def test_count_terms_records_error_and_continues():
-    client = _ScriptedClient([pubmed_counts.PubMedError("boom"), 7, 9])
+    client = _ScriptedClient([pubmed_counts.PubMedError("boom"), 7])
     rows = pubmed_counts.count_terms(client, ["BAD", "GOOD"])
-    assert rows[0]["exact_count"] == "error"
-    assert rows[0]["natural_count"] == "error"
-    assert rows[0]["gap"] == ""
-    assert rows[1]["exact_count"] == 7
-    assert rows[1]["natural_count"] == 9
+    assert rows[0]["count"] == "error"
+    assert rows[1]["count"] == 7
 
 
 def test_run_honors_config_path_and_writes_output(tmp_path, monkeypatch):
@@ -241,7 +238,7 @@ def test_run_honors_config_path_and_writes_output(tmp_path, monkeypatch):
     terms_file.write_text("ACONITASE 2\n", encoding="utf-8")
     results_dir = tmp_path / "results"
 
-    scripted = _ScriptedClient([3, 50])
+    scripted = _ScriptedClient([50])
     monkeypatch.setattr(pubmed_counts, "PubMedClient", lambda **kwargs: scripted)
 
     folder = pubmed_counts.run(terms_file, config_path=config, results_dir=results_dir)

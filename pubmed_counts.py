@@ -1,8 +1,10 @@
 """Count PubMed hits for each term in a list of condition names.
 
 Reads a column of terms from an .xlsx or .csv file and, for each, asks PubMed
-how many articles match - once as an exact quoted phrase and once as PubMed's
-default search - so terms can be triaged before building a combined search.
+how many articles match, so terms can be triaged before building a combined
+search. Hyphens in a term are replaced with spaces first: a hyphen can make
+PubMed drop all but one word of a phrase and return a wildly inflated count
+(for example turning a specific syndrome name into a search for "syndrome").
 """
 
 import configparser
@@ -62,14 +64,15 @@ def _first_column_csv(path):
 PUBMED_WEB = "https://pubmed.ncbi.nlm.nih.gov/"
 
 
-def exact_query(term):
-    """Wrap the term in quotes so PubMed searches the exact phrase (no term mapping)."""
-    return '"' + term.strip() + '"'
+def normalize_term(term):
+    """Clean a term for PubMed: hyphens to spaces, whitespace collapsed.
 
-
-def natural_query(term):
-    """Return the term unquoted, as a plain PubMed search would receive it."""
-    return term.strip()
+    A hyphen inside a term can make PubMed drop all but one word, turning a
+    specific phrase into a search for a common word like "syndrome", so
+    hyphens are replaced with spaces before searching. The same cleaned
+    string is what gets searched and what is shown to the user.
+    """
+    return " ".join(term.replace("-", " ").split())
 
 
 def pubmed_url(query):
@@ -176,23 +179,23 @@ def save_ncbi_config(config_path, email, api_key):
         parser.write(config_file)
 
 
-FIELDS = ["term", "exact_count", "natural_count", "gap", "exact_url", "natural_url"]
-_URL_FIELDS = {"exact_url", "natural_url"}
+FIELDS = ["term", "count", "search_term", "url"]
+_URL_FIELDS = {"url"}
 
 
-def make_row(term, exact_count, natural_count):
-    """Build one output row; gap is blank unless both counts are numbers."""
-    if isinstance(exact_count, int) and isinstance(natural_count, int):
-        gap = natural_count - exact_count
-    else:
-        gap = ""
+def make_row(term, count):
+    """Build one output row: the original term, its hit count, and the search.
+
+    `search_term` is the cleaned string actually sent to PubMed (see
+    normalize_term), so the user can see and click exactly what was searched.
+    `count` is an integer, or the string "error" when the query failed.
+    """
+    search_term = normalize_term(term)
     return {
         "term": term,
-        "exact_count": exact_count,
-        "natural_count": natural_count,
-        "gap": gap,
-        "exact_url": pubmed_url(exact_query(term)),
-        "natural_url": pubmed_url(natural_query(term)),
+        "count": count,
+        "search_term": search_term,
+        "url": pubmed_url(search_term),
     }
 
 
@@ -251,12 +254,10 @@ def count_terms(client, terms, sink=None, on_row=None):
         if on_row is not None:
             on_row(index, term)
         try:
-            exact = client.count(exact_query(term))
-            natural = client.count(natural_query(term))
+            count = client.count(normalize_term(term))
         except PubMedError:
-            exact = "error"
-            natural = "error"
-        sink.append(make_row(term, exact, natural))
+            count = "error"
+        sink.append(make_row(term, count))
     return sink
 
 
