@@ -237,3 +237,102 @@ def write_run(folder, rows, info):
     folder = pathlib.Path(folder)
     write_xlsx(folder / "counts.xlsx", rows, info)
     write_csv(folder / "counts.csv", rows, FIELDS)
+
+
+CONFIG_PATH = pathlib.Path(__file__).parent / "config.ini"
+RESULTS_DIR = pathlib.Path(__file__).parent / "results"
+
+
+def count_terms(client, terms, sink=None, on_row=None):
+    """Append one row per term to `sink` (created if None) and return it."""
+    if sink is None:
+        sink = []
+    for index, term in enumerate(terms):
+        if on_row is not None:
+            on_row(index, term)
+        try:
+            exact = client.count(exact_query(term))
+            natural = client.count(natural_query(term))
+        except PubMedError:
+            exact = "error"
+            natural = "error"
+        sink.append(make_row(term, exact, natural))
+    return sink
+
+
+def build_info(input_path, terms, rows, api_key, complete):
+    """Assemble the Run info metadata block."""
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    if complete:
+        complete_text = "yes"
+    else:
+        complete_text = "no - stopped early; results are partial"
+    return {
+        "Input file": str(input_path),
+        "Terms in file": len(terms),
+        "Rows written": len(rows),
+        "Run at": timestamp,
+        "API key used": "yes" if api_key else "no (3 requests/sec)",
+        "Run complete": complete_text,
+    }
+
+
+def _get_config():
+    """Return (email, api_key), prompting for and saving the email on first run."""
+    email, api_key = load_ncbi_config(CONFIG_PATH)
+    if email is None:
+        print("NCBI asks for a contact email so they can reach you if a search")
+        print("misbehaves. It is stored locally and never shared.")
+        email = input("Enter a contact email address: ").strip()
+        save_ncbi_config(CONFIG_PATH, email, api_key or "")
+    return email, api_key
+
+
+def run(input_path, config_path=None, results_dir=None):
+    """Read terms, count them, and write a run folder. Returns the folder path."""
+    if config_path is None:
+        config_path = CONFIG_PATH
+    if results_dir is None:
+        results_dir = RESULTS_DIR
+
+    email, api_key = _get_config()
+    terms = read_terms(input_path)
+    if not terms:
+        print("No terms found in the first column of that file.")
+        return None
+
+    folder = make_run_folder(results_dir, pathlib.Path(input_path).stem)
+    client = PubMedClient(email=email, api_key=api_key)
+
+    def progress(index, term):
+        print("  " + str(index + 1) + "/" + str(len(terms)) + "  " + term)
+
+    complete = True
+    rows = []
+    try:
+        count_terms(client, terms, sink=rows, on_row=progress)
+    except KeyboardInterrupt:
+        print("\nStopped early - writing what was counted so far.")
+        complete = False
+
+    info = build_info(input_path, terms, rows, api_key, complete)
+    write_run(folder, rows, info)
+    print("Wrote " + str(len(rows)) + " rows to " + str(folder))
+    return folder
+
+
+def main(argv):
+    """Entry point: pubmed_counts.py <path to terms file>."""
+    if len(argv) >= 2:
+        input_path = argv[1]
+    else:
+        input_path = input("Path to the terms file (.xlsx or .csv): ").strip()
+    if not pathlib.Path(input_path).exists():
+        print("No such file: " + input_path)
+        return 1
+    run(input_path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

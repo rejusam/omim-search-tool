@@ -199,3 +199,36 @@ def test_write_run_creates_both_files(tmp_path):
     text = (tmp_path / "counts.csv").read_text(encoding="utf-8-sig")
     assert "ACONITASE 2" in text
     assert "term,exact_count,natural_count,gap,exact_url,natural_url" in text
+
+
+class _ScriptedClient:
+    """Returns queued counts in call order; a PubMedError value raises."""
+
+    def __init__(self, counts):
+        self._counts = list(counts)
+        self.pause_seconds = 0.0
+
+    def count(self, query):
+        value = self._counts.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def test_count_terms_pairs_exact_then_natural():
+    client = _ScriptedClient([3, 50, 0, 900000])
+    rows = pubmed_counts.count_terms(client, ["ACONITASE 2", "ACHALASIA PROGEROID SYNDROME"])
+    assert rows[0]["exact_count"] == 3
+    assert rows[0]["natural_count"] == 50
+    assert rows[1]["exact_count"] == 0
+    assert rows[1]["natural_count"] == 900000
+
+
+def test_count_terms_records_error_and_continues():
+    client = _ScriptedClient([pubmed_counts.PubMedError("boom"), 7, 9])
+    rows = pubmed_counts.count_terms(client, ["BAD", "GOOD"])
+    assert rows[0]["exact_count"] == "error"
+    assert rows[0]["natural_count"] == "error"
+    assert rows[0]["gap"] == ""
+    assert rows[1]["exact_count"] == 7
+    assert rows[1]["natural_count"] == 9
