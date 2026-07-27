@@ -270,6 +270,23 @@ for just "syndrome". Searched as `ACHALASIA PROGEROID SYNDROME` it correctly
 returns 3. The tool makes this substitution for you and shows the exact text
 it searched in the **search_term** column.
 
+**What the count can and can't tell you.** The count is only ever as good as
+the search term. Long descriptive condition names are really catalogue labels,
+not search phrases, so a `0` or a huge count usually says more about the
+*wording* than about how much has actually been published. Treat the tool as a
+way to sort your list into "ready to use" and "needs a tidier name" — the
+rewording itself is a judgement call. A few terms misbehave even after the
+hyphen fix, and they stand out at the top or bottom when you sort by count:
+
+- An unusual abbreviation the term relies on (for example `DEEAH SYNDROME`)
+  can collapse the same way a hyphen does, because PubMed does not recognise
+  the abbreviation and falls back to the common word.
+- A name phrased "…with or without…" gets inflated, because PubMed reads the
+  word "or" as a search command rather than part of the name.
+
+In every case the **search_term** and **url** columns let you see and click
+exactly what was searched, so these are easy to spot and check.
+
 Counting a few hundred terms takes several minutes. That is normal — the tool
 deliberately paces itself to stay within PubMed's fair-use limits. If you have
 an NCBI API key you can add it to `config.ini` under an `[ncbi]` section
