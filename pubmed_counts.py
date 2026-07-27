@@ -145,7 +145,10 @@ class PubMedClient:
             status = response.status_code
             if status == 200:
                 return parse_count(response.json())
-            if attempt >= max_attempts:
+            # Retry transient failures - server errors and rate-limiting.
+            # Other client errors (e.g. a bad query) are permanent, so raise now.
+            transient = status >= 500 or status == 429
+            if not transient or attempt >= max_attempts:
                 raise PubMedError("PubMed returned HTTP " + str(status) + ".")
             self.sleep(2 ** attempt)
             attempt = attempt + 1

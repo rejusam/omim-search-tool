@@ -2,6 +2,7 @@ import pathlib
 
 import openpyxl
 import pytest
+import requests
 
 import pubmed_counts
 
@@ -87,4 +88,62 @@ def test_client_count_sends_query_and_returns_number():
 def test_client_uses_faster_pause_with_api_key():
     no_key = pubmed_counts.PubMedClient(email="x@example.com")
     with_key = pubmed_counts.PubMedClient(email="x@example.com", api_key="abc")
-    assert with_key.pause_seconds < no_key.pause_seconds
+    assert no_key.pause_seconds == 0.34
+    assert with_key.pause_seconds == 0.11
+
+
+def test_client_retries_server_error_then_raises():
+    session = _FakeSession([
+        _FakeResponse(503, {}),
+        _FakeResponse(503, {}),
+        _FakeResponse(503, {}),
+    ])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    with pytest.raises(pubmed_counts.PubMedError):
+        client.count("anything")
+    assert len(session.calls) == 3
+
+
+def test_client_does_not_retry_client_error():
+    session = _FakeSession([
+        _FakeResponse(400, {}),
+        _FakeResponse(200, {"esearchresult": {"count": "5"}}),
+    ])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    with pytest.raises(pubmed_counts.PubMedError):
+        client.count("anything")
+    assert len(session.calls) == 1
+
+
+def test_client_retries_rate_limit_then_succeeds():
+    session = _FakeSession([
+        _FakeResponse(429, {}),
+        _FakeResponse(200, {"esearchresult": {"count": "7"}}),
+    ])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    assert client.count("anything") == 7
+    assert len(session.calls) == 2
+
+
+def test_client_retries_network_error_then_raises():
+    class _AlwaysFails:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.calls = self.calls + 1
+            raise requests.exceptions.ConnectionError("boom")
+
+    session = _AlwaysFails()
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    with pytest.raises(pubmed_counts.PubMedError):
+        client.count("anything")
+    assert session.calls == 3
