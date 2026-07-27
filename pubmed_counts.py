@@ -152,3 +152,25 @@ class PubMedClient:
                 raise PubMedError("PubMed returned HTTP " + str(status) + ".")
             self.sleep(2 ** attempt)
             attempt = attempt + 1
+
+
+def load_ncbi_config(config_path):
+    """Return (email, api_key) from the [ncbi] section, each None if blank/absent."""
+    parser = configparser.ConfigParser()
+    if not parser.read(config_path):
+        return None, None
+    email = parser.get("ncbi", "email", fallback="").strip()
+    api_key = parser.get("ncbi", "api_key", fallback="").strip()
+    return (email or None), (api_key or None)
+
+
+def save_ncbi_config(config_path, email, api_key):
+    """Write the [ncbi] section without disturbing other sections in the file."""
+    parser = configparser.ConfigParser()
+    parser.read(config_path)
+    if not parser.has_section("ncbi"):
+        parser.add_section("ncbi")
+    parser.set("ncbi", "email", (email or "").strip())
+    parser.set("ncbi", "api_key", (api_key or "").strip())
+    with open(config_path, "w", encoding="utf-8") as config_file:
+        parser.write(config_file)

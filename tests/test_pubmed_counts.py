@@ -147,3 +147,29 @@ def test_client_retries_network_error_then_raises():
     with pytest.raises(pubmed_counts.PubMedError):
         client.count("anything")
     assert session.calls == 3
+
+
+def test_load_ncbi_config_reads_email_and_key(tmp_path):
+    config = tmp_path / "config.ini"
+    config.write_text("[ncbi]\nemail = a@b.com\napi_key = k123\n", encoding="utf-8")
+    email, api_key = pubmed_counts.load_ncbi_config(config)
+    assert email == "a@b.com"
+    assert api_key == "k123"
+
+
+def test_load_ncbi_config_missing_returns_none(tmp_path):
+    config = tmp_path / "config.ini"
+    email, api_key = pubmed_counts.load_ncbi_config(config)
+    assert email is None
+    assert api_key is None
+
+
+def test_save_ncbi_config_preserves_omim_section(tmp_path):
+    config = tmp_path / "config.ini"
+    config.write_text("[omim]\napi_key = omimkey\n", encoding="utf-8")
+    pubmed_counts.save_ncbi_config(config, "a@b.com", "")
+    email, api_key = pubmed_counts.load_ncbi_config(config)
+    assert email == "a@b.com"
+    assert api_key is None
+    text = config.read_text(encoding="utf-8")
+    assert "omimkey" in text
