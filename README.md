@@ -228,3 +228,49 @@ prompt and type your own raw query. The full query syntax — how to require
 or exclude words, search specific fields, use wildcards, and so on — is
 documented in `docs/omim-search-reference.md`. Ordinary guided searches
 (section 4) do not need any of this.
+
+## 10. Counting PubMed hits for a list of terms
+
+If you have a column of condition names and want to know how many PubMed
+articles each one finds, use the companion tool `pubmed_counts.py`. It is
+meant for triaging a long list of terms before you combine them into a real
+literature search: it shows you at a glance which terms find nothing (and
+need rewording) and which are so broad they return tens of thousands.
+
+1. Save your terms in a spreadsheet with the names in the **first column**,
+   one per row, no heading needed. An `.xlsx` or a `.csv` both work.
+2. Open Command Prompt and `cd` to this folder, as in the setup steps above.
+3. Run the tool, giving it the path to your file:
+
+   ```
+   python pubmed_counts.py my_terms.xlsx
+   ```
+
+4. The first time, it asks for a contact email. PubMed's provider (NCBI) asks
+   every tool to supply one so they can get in touch if a search misbehaves.
+   It is saved on your computer and never shared.
+5. The tool checks each term and saves a spreadsheet in the `results` folder
+   with four columns:
+   - **term** — the name exactly as it was in your file.
+   - **count** — how many PubMed articles that term finds.
+   - **search_term** — what was actually searched. Hyphens are turned into
+     spaces first (see the note below), so this can differ slightly from your
+     original term.
+   - **url** — a link you can click to open that search in PubMed and check it.
+
+   To triage, sort by **count**: a count of `0` means the term found nothing
+   and should be reworded; a very large count usually means the term is too
+   broad. A count shown as `error` means that one term could not be checked;
+   the rest of the run is unaffected.
+
+**Why hyphens are removed.** A hyphen inside a term can confuse PubMed into
+dropping all but one word — for example `ACHALASIA-PROGEROID SYNDROME`
+searched as-is returns over a million hits, because PubMed ends up searching
+for just "syndrome". Searched as `ACHALASIA PROGEROID SYNDROME` it correctly
+returns 3. The tool makes this substitution for you and shows the exact text
+it searched in the **search_term** column.
+
+Counting a few hundred terms takes several minutes. That is normal — the tool
+deliberately paces itself to stay within PubMed's fair-use limits. If you have
+an NCBI API key you can add it to `config.ini` under an `[ncbi]` section
+(`api_key = ...`) to run about three times faster; it works fine without one.
