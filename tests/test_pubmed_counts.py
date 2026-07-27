@@ -40,3 +40,51 @@ def test_natural_query_is_unquoted_trimmed():
 def test_pubmed_url_encodes_the_query():
     url = pubmed_counts.pubmed_url('"ACONITASE 2"')
     assert url == "https://pubmed.ncbi.nlm.nih.gov/?term=%22ACONITASE+2%22"
+
+
+class _FakeResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append(params)
+        return self._responses.pop(0)
+
+
+def test_parse_count_reads_the_number():
+    payload = {"esearchresult": {"count": "1240", "idlist": []}}
+    assert pubmed_counts.parse_count(payload) == 1240
+
+
+def test_parse_count_raises_on_error_payload():
+    payload = {"esearchresult": {"ERROR": "Invalid db name"}}
+    with pytest.raises(pubmed_counts.PubMedError):
+        pubmed_counts.parse_count(payload)
+
+
+def test_client_count_sends_query_and_returns_number():
+    session = _FakeSession([_FakeResponse(200, {"esearchresult": {"count": "5"}})])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    result = client.count('"ACONITASE 2"')
+    assert result == 5
+    assert session.calls[0]["term"] == '"ACONITASE 2"'
+    assert session.calls[0]["retmax"] == 0
+    assert session.calls[0]["email"] == "x@example.com"
+
+
+def test_client_uses_faster_pause_with_api_key():
+    no_key = pubmed_counts.PubMedClient(email="x@example.com")
+    with_key = pubmed_counts.PubMedClient(email="x@example.com", api_key="abc")
+    assert with_key.pause_seconds < no_key.pause_seconds
