@@ -57,3 +57,22 @@ def _first_column_csv(path):
             else:
                 values.append(None)
     return values
+
+
+PUBMED_WEB = "https://pubmed.ncbi.nlm.nih.gov/"
+
+
+def exact_query(term):
+    """Wrap the term in quotes so PubMed searches the exact phrase (no term mapping)."""
+    return '"' + term.strip() + '"'
+
+
+def natural_query(term):
+    """Return the term unquoted, as a plain PubMed search would receive it."""
+    return term.strip()
+
+
+def pubmed_url(query):
+    """Build the human-facing PubMed search URL for a query."""
+    encoded = urllib.parse.urlencode({"term": query})
+    return PUBMED_WEB + "?" + encoded
