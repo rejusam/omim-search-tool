@@ -261,7 +261,7 @@ def count_terms(client, terms, sink=None, on_row=None):
     return sink
 
 
-def build_info(input_path, terms, rows, api_key, complete):
+def build_info(input_path, terms, rows, complete):
     """Assemble the Run info metadata block."""
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     if complete:
@@ -269,12 +269,22 @@ def build_info(input_path, terms, rows, api_key, complete):
     else:
         complete_text = "no - stopped early; results are partial"
     return {
-        "Input file": str(input_path),
+        "Input file": pathlib.Path(input_path).name,
         "Terms in file": len(terms),
         "Rows written": len(rows),
         "Run at": timestamp,
-        "API key used": "yes" if api_key else "no (3 requests/sec)",
         "Run complete": complete_text,
+        "What 'count' means": (
+            "The number of PubMed articles matching the term as searched. "
+            "PubMed may broaden a term to related words, so a large count can "
+            "mean the term is broad rather than that many papers describe that "
+            "exact condition. Check any count by opening its url."
+        ),
+        "Search note": (
+            "Hyphens in each term are replaced with spaces before searching "
+            "(see the search_term column), because a hyphen can make PubMed "
+            "search only one word of a phrase and return an inflated count."
+        ),
     }
 
 
@@ -316,7 +326,7 @@ def run(input_path, config_path=None, results_dir=None):
         print("\nStopped early - writing what was counted so far.")
         complete = False
 
-    info = build_info(input_path, terms, rows, api_key, complete)
+    info = build_info(input_path, terms, rows, complete)
     write_run(folder, rows, info)
     print("Wrote " + str(len(rows)) + " rows to " + str(folder))
     return folder
