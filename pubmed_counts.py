@@ -19,7 +19,7 @@ import requests
 from openpyxl import Workbook, load_workbook
 from openpyxl.utils import get_column_letter
 
-from omim_search import slugify, make_run_folder, write_csv
+from omim_search import make_run_folder, write_csv
 
 
 def read_terms(path):

@@ -203,6 +203,19 @@ def test_write_run_creates_both_files(tmp_path):
     assert "term,count,search_term,url" in text
 
 
+def test_write_xlsx_sheets_headers_and_hyperlink(tmp_path):
+    row = pubmed_counts.make_row("ACONITASE 2", 50)
+    pubmed_counts.write_run(tmp_path, [row], {"Run complete": "yes"})
+    workbook = openpyxl.load_workbook(tmp_path / "counts.xlsx")
+    assert workbook.sheetnames == ["Counts", "Run info"]
+    counts = workbook["Counts"]
+    header = [cell.value for cell in counts[1]]
+    assert header == ["term", "count", "search_term", "url"]
+    url_cell = counts.cell(row=2, column=4)
+    assert url_cell.hyperlink is not None
+    assert url_cell.value == row["url"]
+
+
 class _ScriptedClient:
     """Returns queued counts in call order; a PubMedError value raises."""
 
