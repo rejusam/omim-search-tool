@@ -7,7 +7,14 @@ blocks in each platform's own syntax and writes instructions for combining the
 blocks by set number. It only writes text: nothing here searches anything.
 """
 
+import argparse
+import datetime
+import json
+import pathlib
+import sys
+
 from pubmed_counts import read_terms
+from omim_search import write_csv
 
 # Characters that break a query parser even inside a quoted phrase. Commas and
 # hyphens are safe on every platform and are deliberately left alone, as is the
@@ -201,3 +208,198 @@ def _check_length(query, name, number, max_chars):
             " characters, over the " + str(max_chars) + " limit. Re-run with a "
             "smaller --block-size."
         )
+
+
+INSTRUCTIONS_TEMPLATE = """# Running the OMIM completeness search
+
+Generated {generated} from {source} — {blocks} condition-term blocks plus one
+phenotype-filter block, {total} pastes per database.
+
+These files hold the same search that was run in PubMed, written in each
+platform's own syntax. The full term list is far too long for any search box,
+so it is split into blocks that are combined afterwards by set number.
+
+## Files
+
+| File | Database | Where to paste it |
+|---|---|---|
+{table}
+
+## How to run each database
+
+1. Open the advanced search screen named in the table above.
+2. Paste BLOCK 1, run it, and leave the result in the search history.
+3. Repeat for every remaining block, in order. Do not clear the history.
+4. Run the two lines under COMBINE at the end of the file. The first ORs the
+   condition blocks together; the second intersects that with the phenotype
+   block.
+5. Export the final set as **RIS, with abstracts**, and import it into
+   Covidence.
+
+## Checks before exporting
+
+- The search history should show {total} numbered sets before you run the
+  COMBINE lines. Fewer means a block failed to run.
+- Each block should return results. A block returning zero usually means the
+  paste was truncated — re-paste that block on its own.
+- The same search in PubMed returned 559 records. A final set of a wildly
+  different order of magnitude is worth checking before exporting.
+
+## Notes
+
+- Terms are quoted phrases, searched as free text with no subject headings, so
+  that all databases stay comparable with the PubMed run.
+- Scopus searches ALL fields, which includes cited references, so the Scopus set
+  will be noisier than the others. That is expected and is removed at screening.
+- A few catalogue titles contained characters that break a search parser, such
+  as the slash in "LAMIN A/C". Those characters were replaced with spaces; every
+  change is listed in term_normalization.csv.
+"""
+
+
+def load_phenotype_terms(path):
+    """Read the phenotype filter terms, one per line."""
+    terms = []
+    with open(path, "r", encoding="utf-8-sig") as term_file:
+        for line in term_file:
+            text = line.strip()
+            if text != "":
+                terms.append(text)
+    return terms
+
+
+def make_pack_folder(results_dir, generated):
+    """Create and return a dated, unique folder for this run's output."""
+    results_dir = pathlib.Path(results_dir)
+    base_name = "searchpack_" + generated.replace("-", "")
+    folder = results_dir / base_name
+    suffix = 2
+    while folder.exists():
+        folder = results_dir / (base_name + "_" + str(suffix))
+        suffix = suffix + 1
+    folder.mkdir(parents=True)
+    return folder
+
+
+def build_instructions(block_count, source_name, generated):
+    """Write the run-and-export instructions for whoever searches the databases."""
+    rows = []
+    for name in DIALECTS:
+        dialect = DIALECTS[name]
+        rows.append("| `" + dialect["filename"] + "` | " + dialect["title"] +
+                    " | " + dialect["where"] + " |")
+    return INSTRUCTIONS_TEMPLATE.format(
+        generated=generated,
+        source=source_name,
+        blocks=block_count,
+        total=block_count + 1,
+        table="\n".join(rows),
+    )
+
+
+def write_pack(folder, blocks, phenotype_terms, rows, source_name, generated,
+               block_size, max_chars):
+    """Write every output file into the folder and return the summary written."""
+    folder = pathlib.Path(folder)
+    block_chars = {}
+    for name in DIALECTS:
+        text = render_file(name, blocks, phenotype_terms, source_name, generated,
+                           max_chars=max_chars)
+        (folder / DIALECTS[name]["filename"]).write_text(text, encoding="utf-8")
+        lengths = []
+        for block in blocks:
+            lengths.append(len(render_block(name, block)))
+        block_chars[name] = lengths
+
+    (folder / "INSTRUCTIONS.md").write_text(
+        build_instructions(len(blocks), source_name, generated), encoding="utf-8"
+    )
+    write_csv(folder / "term_normalization.csv", rows, NORMALIZATION_FIELDS)
+
+    changed = 0
+    for row in rows:
+        if row["changed"] == "yes":
+            changed = changed + 1
+    summary = {
+        "generated": generated,
+        "source_file": source_name,
+        "terms": len(rows),
+        "blocks": len(blocks),
+        "block_size": block_size,
+        "max_chars": max_chars,
+        "terms_normalized": changed,
+        "phenotype_terms": phenotype_terms,
+        "block_chars": block_chars,
+    }
+    with open(folder / "search_summary.json", "w", encoding="utf-8") as summary_file:
+        json.dump(summary, summary_file, indent=2)
+    return summary
+
+
+RESULTS_DIR = pathlib.Path(__file__).parent / "results"
+
+
+def run(input_path, results_dir=None, block_size=DEFAULT_BLOCK_SIZE,
+        max_chars=DEFAULT_MAX_CHARS, phenotype_path=None, skip_header=False,
+        generated=None):
+    """Build the search pack from a term file. Returns the output folder."""
+    if results_dir is None:
+        results_dir = RESULTS_DIR
+    if generated is None:
+        generated = datetime.date.today().isoformat()
+    if phenotype_path is None:
+        phenotype_terms = list(PHENOTYPE_TERMS)
+    else:
+        phenotype_terms = load_phenotype_terms(phenotype_path)
+
+    terms = load_terms(input_path, skip_header=skip_header)
+    if not terms:
+        raise ValueError("No terms found in the first column of " + str(input_path))
+
+    rows = normalization_rows(terms)
+    searched = []
+    for row in rows:
+        searched.append(row["searched"])
+    blocks = build_blocks(searched, block_size)
+
+    # Render everything before creating the folder, so a block that is too long
+    # fails without leaving a half-written pack behind.
+    for name in DIALECTS:
+        render_file(name, blocks, phenotype_terms, pathlib.Path(input_path).name,
+                    generated, max_chars=max_chars)
+
+    folder = make_pack_folder(results_dir, generated)
+    summary = write_pack(folder, blocks, phenotype_terms, rows,
+                         pathlib.Path(input_path).name, generated, block_size,
+                         max_chars)
+    print("Wrote " + str(summary["blocks"]) + " blocks for " +
+          str(len(DIALECTS)) + " databases to " + str(folder))
+    return folder
+
+
+def main(argv):
+    """Entry point: translate_search.py <terms file> [options]."""
+    parser = argparse.ArgumentParser(
+        description="Turn a term list into paste-ready database search blocks."
+    )
+    parser.add_argument("terms_file", help="csv or xlsx with terms in the first column")
+    parser.add_argument("--block-size", type=int, default=DEFAULT_BLOCK_SIZE,
+                        help="terms per block (default %(default)s)")
+    parser.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS,
+                        help="refuse to write a block longer than this (default %(default)s)")
+    parser.add_argument("--phenotype-file",
+                        help="text file of phenotype filter terms, one per line")
+    parser.add_argument("--skip-header", action="store_true",
+                        help="ignore the first row of the terms file")
+    args = parser.parse_args(argv[1:])
+
+    if not pathlib.Path(args.terms_file).exists():
+        print("No such file: " + args.terms_file)
+        return 1
+    run(args.terms_file, block_size=args.block_size, max_chars=args.max_chars,
+        phenotype_path=args.phenotype_file, skip_header=args.skip_header)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

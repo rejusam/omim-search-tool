@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 import translate_search
@@ -136,3 +138,117 @@ def test_or_word_is_a_single_source_of_truth_for_block_and_combine_line():
         assert translate_search.combine_lines("ovid_medline", 2)[0] == "1 OR 2"
     finally:
         translate_search.DIALECTS["ovid_medline"]["or_word"] = original
+
+
+def test_load_phenotype_terms_reads_one_per_line(tmp_path):
+    path = tmp_path / "phenotype.txt"
+    path.write_text("auditory neuropathy\n\nvestibulopathy\n", encoding="utf-8")
+    assert translate_search.load_phenotype_terms(path) == [
+        "auditory neuropathy",
+        "vestibulopathy",
+    ]
+
+
+def test_make_pack_folder_is_dated_and_unique(tmp_path):
+    first = translate_search.make_pack_folder(tmp_path, "2026-07-29")
+    second = translate_search.make_pack_folder(tmp_path, "2026-07-29")
+    assert first.name == "searchpack_20260729"
+    assert second.name == "searchpack_20260729_2"
+    assert first.is_dir() and second.is_dir()
+
+
+def test_build_instructions_names_every_database_and_the_pubmed_total():
+    text = translate_search.build_instructions(9, "kept_terms.csv", "2026-07-29")
+    assert "scopus.txt" in text
+    assert "cinahl.txt" in text
+    assert "ovid_medline.txt" in text
+    assert "ovid_embase.txt" in text
+    assert "559" in text
+    assert "RIS" in text
+
+
+def test_run_writes_every_expected_file(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("final_term\nWilson disease\nLAMIN A/C\n", encoding="utf-8")
+    results = tmp_path / "results"
+
+    folder = translate_search.run(
+        terms_file, results_dir=results, block_size=1, skip_header=True,
+        generated="2026-07-29",
+    )
+
+    names = sorted(item.name for item in folder.iterdir())
+    assert names == [
+        "INSTRUCTIONS.md",
+        "cinahl.txt",
+        "ovid_embase.txt",
+        "ovid_medline.txt",
+        "scopus.txt",
+        "search_summary.json",
+        "term_normalization.csv",
+    ]
+
+
+def test_run_writes_normalized_terms_into_the_queries(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("LAMIN A/C\n", encoding="utf-8")
+    folder = translate_search.run(
+        terms_file, results_dir=tmp_path / "results", generated="2026-07-29"
+    )
+    text = (folder / "scopus.txt").read_text(encoding="utf-8")
+    assert 'ALL("LAMIN A C")' in text
+    assert "LAMIN A/C" not in text
+
+
+def test_run_records_counts_in_the_summary(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("Wilson disease\nLAMIN A/C\nFABRY DISEASE\n", encoding="utf-8")
+    folder = translate_search.run(
+        terms_file, results_dir=tmp_path / "results", block_size=2,
+        generated="2026-07-29",
+    )
+    summary = json.loads((folder / "search_summary.json").read_text(encoding="utf-8"))
+    assert summary["terms"] == 3
+    assert summary["blocks"] == 2
+    assert summary["block_size"] == 2
+    assert summary["terms_normalized"] == 1
+    assert summary["source_file"] == "kept_terms.csv"
+    assert len(summary["block_chars"]["scopus"]) == 2
+
+
+def test_run_writes_the_normalization_audit(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("LAMIN A/C\nWilson disease\n", encoding="utf-8")
+    folder = translate_search.run(
+        terms_file, results_dir=tmp_path / "results", generated="2026-07-29"
+    )
+    text = (folder / "term_normalization.csv").read_text(encoding="utf-8-sig")
+    assert "original,searched,changed" in text
+    assert "LAMIN A/C,LAMIN A C,yes" in text
+    assert "Wilson disease,Wilson disease,no" in text
+
+
+def test_run_raises_on_an_empty_term_file(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("\n", encoding="utf-8")
+    with pytest.raises(ValueError):
+        translate_search.run(
+            terms_file, results_dir=tmp_path / "results", generated="2026-07-29"
+        )
+
+
+def test_run_leaves_no_folder_behind_when_a_block_is_too_long(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("Wilson disease\nFABRY DISEASE\n", encoding="utf-8")
+    results = tmp_path / "results"
+    with pytest.raises(translate_search.BlockTooLongError):
+        translate_search.run(
+            terms_file, results_dir=results, max_chars=10, generated="2026-07-29"
+        )
+    assert not results.exists()
+
+
+def test_main_reports_a_missing_file(tmp_path, capsys):
+    code = translate_search.main(["translate_search.py", str(tmp_path / "nope.csv")])
+    assert code == 1
+    assert "No such file" in capsys.readouterr().out
