@@ -291,3 +291,32 @@ Counting a few hundred terms takes several minutes. That is normal — the tool
 deliberately paces itself to stay within PubMed's fair-use limits. If you have
 an NCBI API key you can add it to `config.ini` under an `[ncbi]` section
 (`api_key = ...`) to run about three times faster; it works fine without one.
+
+## 11. Building search strings for other databases
+
+`translate_search.py` takes the same list of condition terms and writes out the
+equivalent search for Scopus, CINAHL and Ovid, ready to paste. It is for
+whoever runs those databases by hand; it does not search anything itself.
+
+```
+python translate_search.py kept_terms.csv --skip-header
+```
+
+Use `--skip-header` when the first row of the file is a column heading rather
+than a term. The tool writes a folder inside `results` called
+`searchpack_<date>` containing:
+
+- `scopus.txt`, `cinahl.txt`, `ovid_medline.txt`, `ovid_embase.txt` — the
+  search, split into numbered blocks with a COMBINE section at the end.
+- `INSTRUCTIONS.md` — where to paste each block, how to combine the blocks by
+  set number, and how to export for Covidence.
+- `term_normalization.csv` — every term as supplied and as searched, flagging
+  the few where a character such as the slash in `LAMIN A/C` had to be replaced
+  with a space so the search box would accept it.
+- `search_summary.json` — counts and block lengths, for the methods text.
+
+A search box will not accept hundreds of terms at once, so the terms are split
+into blocks of 60 — nine blocks for a list of 523 terms. Each block is pasted
+and run as its own search, and the COMBINE lines at the end of the file join
+them together and intersect the result with the phenotype filter. If a platform
+rejects a block as too long, re-run with a smaller `--block-size`.
