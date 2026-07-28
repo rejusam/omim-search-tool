@@ -16,10 +16,17 @@ import sys
 from pubmed_counts import read_terms
 from omim_search import write_csv
 
-# Characters that break a query parser even inside a quoted phrase. Commas and
-# hyphens are safe on every platform and are deliberately left alone, as is the
-# word "or" inside a quoted phrase.
-PARSER_CHARS = "()/:+"
+# Characters replaced with a space before searching. ()/:+ break a query parser
+# even inside a quoted phrase. Hyphens are replaced too, not because they break
+# a parser, but for exact string parity with the PubMed run that produced the
+# 559-record baseline (see normalize_term in pubmed_counts.py): PubMed searched
+# these terms with hyphens already turned to spaces, so a term surviving here
+# with a hyphen intact would be a different string than what PubMed searched.
+# Double quotes are replaced because _quoted_or wraps every term in double
+# quotes with no escaping; an unescaped quote inside a term would break the
+# quoting. Commas and the word "or" inside a quoted phrase are safe on every
+# platform and are deliberately left alone.
+PARSER_CHARS = "()/:+-\""
 
 NORMALIZATION_FIELDS = ["original", "searched", "changed"]
 
@@ -227,19 +234,26 @@ so it is split into blocks that are combined afterwards by set number.
 
 ## How to run each database
 
-1. Open the advanced search screen named in the table above.
-2. Paste BLOCK 1, run it, and leave the result in the search history.
-3. Repeat for every remaining block, in order. Do not clear the history.
-4. Run the two lines under COMBINE at the end of the file. The first ORs the
+1. Start from an empty search history. If the history already holds sets from
+   an earlier search, clear it first — the COMBINE lines below refer to set
+   numbers 1 to {total} by absolute position, and any earlier set shifts every
+   one of those references off by one.
+2. Open the advanced search screen named in the table above.
+3. Paste BLOCK 1, run it, and leave the result in the search history.
+4. Repeat for every remaining block, in order. Do not clear the history.
+5. Run the two lines under COMBINE at the end of the file. The first ORs the
    condition blocks together; the second intersects that with the phenotype
    block.
-5. Export the final set as **RIS, with abstracts**, and import it into
+6. Export the final set as **RIS, with abstracts**, and import it into
    Covidence.
 
 ## Checks before exporting
 
-- The search history should show {total} numbered sets before you run the
-  COMBINE lines. Fewer means a block failed to run.
+- The search history should show exactly {total} numbered sets before you run
+  the COMBINE lines — set numbers 1 to {total} and nothing else.
+  Fewer means a block failed to run.
+  More means the history was not empty when you started, so every COMBINE
+  reference below is pointing at the wrong set.
 - Each block should return results. A block returning zero usually means the
   paste was truncated — re-paste that block on its own.
 - The same search in PubMed returned 559 records. A final set of a wildly
@@ -252,7 +266,8 @@ so it is split into blocks that are combined afterwards by set number.
 - Scopus searches ALL fields, which includes cited references, so the Scopus set
   will be noisier than the others. That is expected and is removed at screening.
 - A few catalogue titles contained characters that break a search parser, such
-  as the slash in "LAMIN A/C". Those characters were replaced with spaces; every
+  as the slash in "LAMIN A/C", or hyphens, which were replaced with spaces so
+  that every term here is the exact string that was searched in PubMed. Every
   change is listed in term_normalization.csv.
 """
 
@@ -302,6 +317,7 @@ def write_pack(folder, blocks, phenotype_terms, rows, source_name, generated,
     """Write every output file into the folder and return the summary written."""
     folder = pathlib.Path(folder)
     block_chars = {}
+    phenotype_block_chars = {}
     for name in DIALECTS:
         text = render_file(name, blocks, phenotype_terms, source_name, generated,
                            max_chars=max_chars)
@@ -310,6 +326,7 @@ def write_pack(folder, blocks, phenotype_terms, rows, source_name, generated,
         for block in blocks:
             lengths.append(len(render_block(name, block)))
         block_chars[name] = lengths
+        phenotype_block_chars[name] = len(render_block(name, phenotype_terms))
 
     (folder / "INSTRUCTIONS.md").write_text(
         build_instructions(len(blocks), source_name, generated), encoding="utf-8"
@@ -330,6 +347,7 @@ def write_pack(folder, blocks, phenotype_terms, rows, source_name, generated,
         "terms_normalized": changed,
         "phenotype_terms": phenotype_terms,
         "block_chars": block_chars,
+        "phenotype_block_chars": phenotype_block_chars,
     }
     with open(folder / "search_summary.json", "w", encoding="utf-8") as summary_file:
         json.dump(summary, summary_file, indent=2)
@@ -351,10 +369,15 @@ def run(input_path, results_dir=None, block_size=DEFAULT_BLOCK_SIZE,
         phenotype_terms = list(PHENOTYPE_TERMS)
     else:
         phenotype_terms = load_phenotype_terms(phenotype_path)
+        if not phenotype_terms:
+            raise ValueError("No phenotype terms found in " + str(phenotype_path))
+    phenotype_terms = [normalize(term) for term in phenotype_terms]
 
     terms = load_terms(input_path, skip_header=skip_header)
     if not terms:
         raise ValueError("No terms found in the first column of " + str(input_path))
+    print("Loaded " + str(len(terms)) + " terms. First: " + terms[0] +
+          " | Last: " + terms[-1])
 
     rows = normalization_rows(terms)
     searched = []

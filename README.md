@@ -303,16 +303,25 @@ python translate_search.py kept_terms.csv --skip-header
 ```
 
 Use `--skip-header` when the first row of the file is a column heading rather
-than a term. The tool writes a folder inside `results` called
-`searchpack_<date>` containing:
+than a term. Other options:
+
+- `--phenotype-file` — a text file of phenotype filter terms, one per line, to
+  use instead of the built-in vestibular/auditory filter.
+- `--max-chars` — refuse to write a block longer than this many characters
+  (default 4000), in case a database's search box truncates long pastes.
+- `--block-size` — terms per block (default 60).
+
+The tool writes a folder inside `results` called `searchpack_<date>`
+containing:
 
 - `scopus.txt`, `cinahl.txt`, `ovid_medline.txt`, `ovid_embase.txt` — the
   search, split into numbered blocks with a COMBINE section at the end.
 - `INSTRUCTIONS.md` — where to paste each block, how to combine the blocks by
   set number, and how to export for Covidence.
 - `term_normalization.csv` — every term as supplied and as searched, flagging
-  the few where a character such as the slash in `LAMIN A/C` had to be replaced
-  with a space so the search box would accept it.
+  the few where a character was replaced with a space so the search box would
+  accept it — for example the slash in `LAMIN A/C`, or a hyphen, which is
+  replaced so the term is the exact string that was searched in PubMed.
 - `search_summary.json` — counts and block lengths, for the methods text.
 
 A search box will not accept hundreds of terms at once, so the terms are split

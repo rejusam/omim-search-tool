@@ -11,12 +11,22 @@ def test_normalize_replaces_slash_with_space():
 
 def test_normalize_replaces_parentheses_colon_and_plus():
     term = "ATPase, Cu(2+)-TRANSPORTING, ALPHA POLYPEPTIDE"
-    assert translate_search.normalize(term) == "ATPase, Cu 2 -TRANSPORTING, ALPHA POLYPEPTIDE"
+    assert translate_search.normalize(term) == "ATPase, Cu 2 TRANSPORTING, ALPHA POLYPEPTIDE"
 
 
-def test_normalize_keeps_commas_hyphens_and_the_word_or():
+def test_normalize_keeps_commas_and_the_word_or():
     term = "PERIPHERAL NEUROPATHY, AUTOSOMAL RECESSIVE, WITH OR WITHOUT IMPAIRED INTELLECTUAL DEVELOPMENT"
     assert translate_search.normalize(term) == term
+
+
+def test_normalize_replaces_hyphens_with_spaces_for_pubmed_parity():
+    term = "CHARCOT-MARIE-TOOTH DISEASE"
+    assert translate_search.normalize(term) == "CHARCOT MARIE TOOTH DISEASE"
+
+
+def test_normalize_replaces_double_quotes_with_spaces():
+    term = 'SO-CALLED "BRITTLE" BONE DISEASE'
+    assert translate_search.normalize(term) == "SO CALLED BRITTLE BONE DISEASE"
 
 
 def test_normalize_leaves_plain_term_unchanged():
@@ -65,6 +75,17 @@ def test_build_blocks_of_523_terms_at_60_gives_nine():
 def test_build_blocks_rejects_zero_size():
     with pytest.raises(ValueError):
         translate_search.build_blocks(["a"], 0)
+
+
+def test_every_term_appears_in_exactly_one_rendered_block():
+    terms = ["condition " + str(number) for number in range(137)]
+    blocks = translate_search.build_blocks(terms, translate_search.DEFAULT_BLOCK_SIZE)
+    rendered = [translate_search.render_block("scopus", block) for block in blocks]
+
+    for term in terms:
+        quoted = '"' + term + '"'
+        hits = sum(block_text.count(quoted) for block_text in rendered)
+        assert hits == 1, term + " appeared " + str(hits) + " times, expected 1"
 
 
 def test_render_block_scopus_uses_all_field_and_uppercase_or():
@@ -167,6 +188,20 @@ def test_build_instructions_names_every_database_and_the_pubmed_total():
     assert "RIS" in text
 
 
+def test_build_instructions_requires_starting_from_an_empty_history():
+    text = translate_search.build_instructions(9, "kept_terms.csv", "2026-07-29")
+    assert "empty search history" in text
+    assert "clear" in text.lower()
+    assert "set numbers 1 to 10" in text
+
+
+def test_build_instructions_requires_exactly_the_expected_set_count():
+    text = translate_search.build_instructions(9, "kept_terms.csv", "2026-07-29")
+    assert "exactly 10 numbered sets" in text
+    assert "Fewer means a block failed to run" in text
+    assert "More means the history was not empty" in text
+
+
 def test_run_writes_every_expected_file(tmp_path):
     terms_file = tmp_path / "kept_terms.csv"
     terms_file.write_text("final_term\nWilson disease\nLAMIN A/C\n", encoding="utf-8")
@@ -214,6 +249,9 @@ def test_run_records_counts_in_the_summary(tmp_path):
     assert summary["terms_normalized"] == 1
     assert summary["source_file"] == "kept_terms.csv"
     assert len(summary["block_chars"]["scopus"]) == 2
+    assert summary["phenotype_block_chars"]["scopus"] == len(
+        translate_search.render_block("scopus", translate_search.PHENOTYPE_TERMS)
+    )
 
 
 def test_run_writes_the_normalization_audit(tmp_path):
@@ -228,12 +266,71 @@ def test_run_writes_the_normalization_audit(tmp_path):
     assert "Wilson disease,Wilson disease,no" in text
 
 
+def test_run_prints_the_term_count_and_first_and_last_term(tmp_path, capsys):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text(
+        "final_term\nWilson disease\nLAMIN A/C\nFABRY DISEASE\n", encoding="utf-8"
+    )
+    translate_search.run(
+        terms_file, results_dir=tmp_path / "results", skip_header=True,
+        generated="2026-07-29",
+    )
+    out = capsys.readouterr().out
+    assert "3 terms" in out
+    assert "Wilson disease" in out
+    assert "FABRY DISEASE" in out
+
+
 def test_run_raises_on_an_empty_term_file(tmp_path):
     terms_file = tmp_path / "kept_terms.csv"
     terms_file.write_text("\n", encoding="utf-8")
     with pytest.raises(ValueError):
         translate_search.run(
             terms_file, results_dir=tmp_path / "results", generated="2026-07-29"
+        )
+
+
+def test_run_uses_a_custom_phenotype_file(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("Wilson disease\n", encoding="utf-8")
+    phenotype_file = tmp_path / "phenotype.txt"
+    phenotype_file.write_text("custom filter term\n", encoding="utf-8")
+
+    folder = translate_search.run(
+        terms_file, results_dir=tmp_path / "results",
+        phenotype_path=phenotype_file, generated="2026-07-29",
+    )
+
+    text = (folder / "scopus.txt").read_text(encoding="utf-8")
+    assert 'ALL("custom filter term")' in text
+    assert "auditory neuropathy" not in text
+
+
+def test_run_normalizes_phenotype_terms_like_condition_terms(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("Wilson disease\n", encoding="utf-8")
+    phenotype_file = tmp_path / "phenotype.txt"
+    phenotype_file.write_text("CHARCOT-MARIE-TOOTH filter\n", encoding="utf-8")
+
+    folder = translate_search.run(
+        terms_file, results_dir=tmp_path / "results",
+        phenotype_path=phenotype_file, generated="2026-07-29",
+    )
+
+    text = (folder / "scopus.txt").read_text(encoding="utf-8")
+    assert 'ALL("CHARCOT MARIE TOOTH filter")' in text
+
+
+def test_run_raises_on_an_empty_phenotype_file(tmp_path):
+    terms_file = tmp_path / "kept_terms.csv"
+    terms_file.write_text("Wilson disease\n", encoding="utf-8")
+    phenotype_file = tmp_path / "phenotype.txt"
+    phenotype_file.write_text("\n", encoding="utf-8")
+
+    with pytest.raises(ValueError):
+        translate_search.run(
+            terms_file, results_dir=tmp_path / "results",
+            phenotype_path=phenotype_file, generated="2026-07-29",
         )
 
 
