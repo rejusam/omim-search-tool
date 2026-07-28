@@ -126,3 +126,13 @@ def test_render_file_raises_when_a_block_exceeds_max_chars():
             "scopus", [long_terms], ["vestibulopathy"], "kept_terms.csv",
             "2026-07-29", max_chars=200,
         )
+
+
+def test_or_word_is_a_single_source_of_truth_for_block_and_combine_line():
+    original = translate_search.DIALECTS["ovid_medline"]["or_word"]
+    translate_search.DIALECTS["ovid_medline"]["or_word"] = "OR"
+    try:
+        assert translate_search.render_block("ovid_medline", ["a", "b"]) == '("a" OR "b").mp.'
+        assert translate_search.combine_lines("ovid_medline", 2)[0] == "1 OR 2"
+    finally:
+        translate_search.DIALECTS["ovid_medline"]["or_word"] = original

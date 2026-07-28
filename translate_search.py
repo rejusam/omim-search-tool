@@ -89,25 +89,16 @@ def _quoted_or(terms, or_word):
     return (" " + or_word + " ").join(quoted)
 
 
-def _scopus_block(terms):
-    return "ALL(" + _quoted_or(terms, "OR") + ")"
-
-
-def _cinahl_block(terms):
-    return "TX (" + _quoted_or(terms, "OR") + ")"
-
-
-def _ovid_block(terms):
-    return "(" + _quoted_or(terms, "or") + ").mp."
-
-
-# Each dialect knows three things: how to render a block, how the platform
-# refers to an earlier search set, and which case its operators take.
+# Each dialect entry declares everything a rendering needs: the display title
+# and output filename, the block format string (with a {terms} placeholder
+# for the quoted-OR phrase), the set-reference prefix, the OR/AND operator
+# words in the case this platform expects, and where in the platform's UI to
+# paste each block.
 DIALECTS = {
     "scopus": {
         "title": "Scopus",
         "filename": "scopus.txt",
-        "block": _scopus_block,
+        "format": "ALL({terms})",
         "set_prefix": "#",
         "or_word": "OR",
         "and_word": "AND",
@@ -116,7 +107,7 @@ DIALECTS = {
     "cinahl": {
         "title": "CINAHL (EBSCOhost)",
         "filename": "cinahl.txt",
-        "block": _cinahl_block,
+        "format": "TX ({terms})",
         "set_prefix": "S",
         "or_word": "OR",
         "and_word": "AND",
@@ -125,7 +116,7 @@ DIALECTS = {
     "ovid_medline": {
         "title": "Ovid MEDLINE",
         "filename": "ovid_medline.txt",
-        "block": _ovid_block,
+        "format": "({terms}).mp.",
         "set_prefix": "",
         "or_word": "or",
         "and_word": "and",
@@ -134,7 +125,7 @@ DIALECTS = {
     "ovid_embase": {
         "title": "Ovid Embase",
         "filename": "ovid_embase.txt",
-        "block": _ovid_block,
+        "format": "({terms}).mp.",
         "set_prefix": "",
         "or_word": "or",
         "and_word": "and",
@@ -145,7 +136,9 @@ DIALECTS = {
 
 def render_block(name, terms):
     """Render one block of terms in the named database's syntax."""
-    return DIALECTS[name]["block"](terms)
+    dialect = DIALECTS[name]
+    quoted_or = _quoted_or(terms, dialect["or_word"])
+    return dialect["format"].format(terms=quoted_or)
 
 
 def combine_lines(name, block_count):
