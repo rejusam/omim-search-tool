@@ -1,6 +1,7 @@
 # Multi-database search strings — implementation plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+Each task is written to be picked up on its own: steps use checkboxes (`- [ ]`)
+so progress is trackable, and every task ends with a testable deliverable.
 
 **Goal:** Build `translate_search.py`, which turns the 523 OMIM condition terms into paste-ready Scopus, CINAHL and Ovid search blocks with run instructions, so a reviewer can execute the same search by hand in each database.
 
@@ -8,7 +9,13 @@
 
 **Tech Stack:** Python 3, standard library only (`argparse`, `csv`, `json`, `pathlib`, `datetime`), plus the existing `pubmed_counts.read_terms` and `omim_search.write_csv` helpers. pytest for tests. No new dependencies in `requirements.txt`.
 
-**Spec:** `docs/superpowers/specs/2026-07-29-multi-database-search-strings-design.md`
+**Spec:** `docs/design/2026-07-29-multi-database-search-strings-design.md`
+
+**Superseded during implementation:** Task 1 below leaves hyphens in place. Review
+of the finished tool showed the PubMed run had replaced them with spaces, so 178
+of the 523 terms would have differed from the search they were meant to
+reproduce. Hyphens, and the double quote, are now replaced too; the spec records
+the reasoning.
 
 ## Global Constraints
 
