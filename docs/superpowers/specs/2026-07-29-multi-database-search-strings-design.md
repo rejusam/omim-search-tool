@@ -46,12 +46,22 @@ PubMed set.
 
 ### Normalization
 
-Minimal, and only where a platform's parser would otherwise break. The
-characters `(`, `)`, `/`, `:` and `+` are replaced with a space and whitespace
-is collapsed. This affects 18 of the 523 terms, for example
-`LAMIN A/C` becomes `LAMIN A C` and
-`ATPase, Na+/K+ TRANSPORTING, ALPHA-1 POLYPEPTIDE` becomes
-`ATPase, Na K TRANSPORTING, ALPHA-1 POLYPEPTIDE`.
+Two kinds of substitution, both replacing the character with a space and
+collapsing the whitespace that results.
+
+**For parity with the PubMed run:** hyphens. The PubMed search that produced
+the 559 records replaced them before searching, so keeping them here would mean
+the four databases searched different strings from PubMed while the methods text
+claimed one search. `CHARCOT-MARIE-TOOTH DISEASE` is searched as
+`CHARCOT MARIE TOOTH DISEASE`, exactly as PubMed saw it.
+
+**Because a platform's parser would otherwise break:** `(`, `)`, `/`, `:`, `+`
+and the double quote. `LAMIN A/C` becomes `LAMIN A C`. This is the one place the
+strings deliberately differ from the PubMed run, which never stripped these
+characters — it affects 18 of the 523 terms, and every one is listed in the
+audit file so the divergence can be stated in the methods text. The double quote
+appears in no current term but would emit a malformed query if a regenerated
+list ever contained one, since each term is wrapped in quotes unescaped.
 
 Commas are left alone (197 terms contain one) and so is the word "or" (4 terms
 contain it), because both are safe inside a quoted phrase on every platform.
