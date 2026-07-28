@@ -50,3 +50,18 @@ def load_terms(path, skip_header=False):
             seen.add(value)
             terms.append(value)
     return terms
+
+
+DEFAULT_BLOCK_SIZE = 60
+
+
+def build_blocks(terms, size):
+    """Split the term list into blocks of at most `size` terms."""
+    if size < 1:
+        raise ValueError("Block size must be at least 1.")
+    blocks = []
+    start = 0
+    while start < len(terms):
+        blocks.append(terms[start:start + size])
+        start = start + size
+    return blocks

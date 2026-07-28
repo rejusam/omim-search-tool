@@ -41,3 +41,25 @@ def test_load_terms_skips_header_when_asked(tmp_path):
     path = tmp_path / "terms.csv"
     path.write_text("final_term\nWilson disease\n", encoding="utf-8")
     assert translate_search.load_terms(path, skip_header=True) == ["Wilson disease"]
+
+
+def test_build_blocks_splits_evenly():
+    blocks = translate_search.build_blocks(["a", "b", "c", "d"], 2)
+    assert blocks == [["a", "b"], ["c", "d"]]
+
+
+def test_build_blocks_leaves_a_short_last_block():
+    blocks = translate_search.build_blocks(["a", "b", "c"], 2)
+    assert blocks == [["a", "b"], ["c"]]
+
+
+def test_build_blocks_of_523_terms_at_60_gives_nine():
+    terms = ["t" + str(number) for number in range(523)]
+    blocks = translate_search.build_blocks(terms, translate_search.DEFAULT_BLOCK_SIZE)
+    assert len(blocks) == 9
+    assert len(blocks[-1]) == 43
+
+
+def test_build_blocks_rejects_zero_size():
+    with pytest.raises(ValueError):
+        translate_search.build_blocks(["a"], 0)
