@@ -7,9 +7,6 @@ blocks in each platform's own syntax and writes instructions for combining the
 blocks by set number. It only writes text: nothing here searches anything.
 """
 
-import pathlib
-
-from omim_search import write_csv
 from pubmed_counts import read_terms
 
 # Characters that break a query parser even inside a quoted phrase. Commas and
