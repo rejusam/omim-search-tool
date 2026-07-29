@@ -329,3 +329,22 @@ into blocks of 60 — nine blocks for a list of 523 terms. Each block is pasted
 and run as its own search, and the COMBINE lines at the end of the file join
 them together and intersect the result with the phenotype filter. If a platform
 rejects a block as too long, re-run with a smaller `--block-size`.
+
+## 12. Checking which records are new
+
+When a database export comes back, `overlap_check.py` reports how many of its
+records were already found by an earlier search and how many are new.
+
+```
+python overlap_check.py scopus_export.csv --against results/pubmed_combined_search_20260728/articles.csv --out new_records.csv
+```
+
+Both files can be `.ris` or `.csv` — whatever the database gave you. Records are
+matched first on PubMed ID, then on DOI, then on the title with punctuation and
+capitals removed, so a record counts as new only if all three fail.
+
+The tool prints how many matched by each route, how many are new, and how many
+of the new ones have no PubMed ID at all — those last are the records the
+PubMed search could never have found, and they are the clearest evidence that
+searching a second database was worthwhile. With `--out` it also writes the new
+records to a spreadsheet you can read through.
