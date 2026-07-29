@@ -193,3 +193,15 @@ def test_match_reason_matches_a_url_doi_against_a_bare_doi():
     index = overlap_check.build_index([_rec(doi="10.1/abc", title="Held")])
     record = _rec(doi="https://dx.doi.org/10.1/ABC", title="Different title")
     assert overlap_check.match_reason(record, index) == "doi"
+
+
+def test_read_ris_export_ignores_a_cinahl_accession_repeated_in_id(tmp_path):
+    path = tmp_path / "cinahl.ris"
+    path.write_text(
+        "TY  - JOUR\nDB  - CINAHL Ultimate\nAN  - 194908876\nID  - 194908876\n"
+        "TI  - A paper.\nDO  - 10.3390/audiolres16030089\nER  - \n",
+        encoding="utf-8",
+    )
+    record = overlap_check.read_export(path)[0]
+    assert record["pmid"] == ""
+    assert record["doi"] == "10.3390/audiolres16030089"

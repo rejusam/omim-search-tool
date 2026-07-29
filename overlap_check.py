@@ -95,15 +95,18 @@ def normalize_doi(doi):
 def _pmid_from(record):
     """Return the record's PubMed ID if it looks like one.
 
-    Ovid puts the PubMed ID in the ID tag for both MEDLINE and Embase records,
-    and the database's own accession in AN — an Embase accession is not a
-    PubMed ID and is never treated as one. Anything non-numeric is ignored so
+    Ovid puts the PubMed ID in the ID tag and the platform's own accession in
+    AN, so ID is usable there. EBSCO puts the CINAHL accession in both, which
+    is not a PubMed ID and must never be matched as one. The two are told
+    apart by whether ID repeats AN. Non-numeric values are ignored as well, so
     a platform that reuses ID for its own key cannot introduce a false match.
     """
     pmid = record.get("pmid", "").strip()
-    if pmid.isdigit():
-        return pmid
-    return ""
+    if not pmid.isdigit():
+        return ""
+    if pmid == record.get("accession", "").strip():
+        return ""
+    return pmid
 
 
 def read_ris_export(path):
