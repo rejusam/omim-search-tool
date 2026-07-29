@@ -205,3 +205,16 @@ def test_read_ris_export_ignores_a_cinahl_accession_repeated_in_id(tmp_path):
     record = overlap_check.read_export(path)[0]
     assert record["pmid"] == ""
     assert record["doi"] == "10.3390/audiolres16030089"
+
+
+def test_read_csv_export_reads_ebsco_column_names(tmp_path):
+    path = tmp_path / "cinahl.csv"
+    path.write_text(
+        "an,title,publicationDate,source,doi\n"
+        "194908876,A paper.,2026-06-01,International Journal of Audiology,10.1/abc\n",
+        encoding="utf-8",
+    )
+    record = overlap_check.read_export(path)[0]
+    assert record["doi"] == "10.1/abc"
+    assert record["year"] == "2026-06-01"
+    assert record["source"] == "International Journal of Audiology"

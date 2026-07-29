@@ -51,8 +51,9 @@ def read_csv_export(path):
                 _first(lower, ["pubmed id", "pmid", "ui", "accession number"]),
                 _first(lower, ["doi", "di"]),
                 _first(lower, ["title", "document title", "ti"]),
-                _first(lower, ["year", "publication year", "py"]),
-                _first(lower, ["source title", "journal", "so"]),
+                _first(lower, ["year", "publication year", "py",
+                              "publicationdate", "coverdate"]),
+                _first(lower, ["source title", "journal", "so", "source"]),
             ))
     return records
 
