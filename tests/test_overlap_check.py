@@ -161,11 +161,35 @@ def test_read_ris_export_uses_the_ovid_id_tag_as_pmid_for_medline(tmp_path):
     assert records[0]["pmid"] == "32672909"
 
 
-def test_read_ris_export_ignores_the_id_tag_for_embase(tmp_path):
+def test_read_ris_export_ignores_the_embase_accession_number(tmp_path):
     path = tmp_path / "embase.ris"
     path.write_text(
-        "TY  - JOUR\nDB  - Embase\nID  - 32672909\nT1  - A paper.\nER  - \n",
+        "TY  - JOUR\nDB  - Embase Weekly Updates\nAN  - 650899870\n"
+        "ID  - 41979424\nT1  - A paper.\n"
+        "DO  - https://dx.doi.org/10.1007/s00415-026-13867-1\nER  - \n",
         encoding="utf-8",
     )
     records = overlap_check.read_export(path)
-    assert records[0]["pmid"] == ""
+    assert records[0]["pmid"] == "41979424"
+    assert records[0]["doi"] == "10.1007/s00415-026-13867-1"
+
+
+def test_read_ris_export_ignores_a_non_numeric_id(tmp_path):
+    path = tmp_path / "other.ris"
+    path.write_text(
+        "TY  - JOUR\nDB  - Some database\nID  - ref-42\nT1  - A paper.\nER  - \n",
+        encoding="utf-8",
+    )
+    assert overlap_check.read_export(path)[0]["pmid"] == ""
+
+
+def test_normalize_doi_strips_url_prefixes_and_case():
+    assert overlap_check.normalize_doi("https://dx.doi.org/10.1/ABC") == "10.1/abc"
+    assert overlap_check.normalize_doi("doi:10.2/def") == "10.2/def"
+    assert overlap_check.normalize_doi("10.3/ghi") == "10.3/ghi"
+
+
+def test_match_reason_matches_a_url_doi_against_a_bare_doi():
+    index = overlap_check.build_index([_rec(doi="10.1/abc", title="Held")])
+    record = _rec(doi="https://dx.doi.org/10.1/ABC", title="Different title")
+    assert overlap_check.match_reason(record, index) == "doi"

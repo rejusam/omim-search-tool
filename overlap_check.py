@@ -31,7 +31,7 @@ def _record(pmid, doi, title, year, source):
     """Build one record with the identifiers trimmed and DOIs lowercased."""
     return {
         "pmid": (pmid or "").strip(),
-        "doi": (doi or "").strip().lower(),
+        "doi": normalize_doi(doi),
         "title": (title or "").strip(),
         "year": (year or "").strip(),
         "source": (source or "").strip(),
@@ -75,25 +75,34 @@ RIS_TAGS = {
     "JO": "source",
     "T2": "source",
     "JF": "source",
-    "AN": "pmid",
     "DB": "database",
-    "ID": "accession",
+    "ID": "pmid",
+    "AN": "accession",
 }
 
 
-def _pmid_from(record):
-    """Return the accession as a PubMed ID, but only when it is one.
+def normalize_doi(doi):
+    """Reduce a DOI to its bare form, since Ovid exports them as URLs."""
+    text = (doi or "").strip().lower()
+    for prefix in ["https://dx.doi.org/", "http://dx.doi.org/",
+                   "https://doi.org/", "http://doi.org/", "doi:"]:
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    return text.strip()
 
-    Ovid puts the record's accession number in the ID tag. In a MEDLINE export
-    that accession is the PubMed ID; in an Embase export it is an Embase
-    number, which would match an unrelated PubMed ID by coincidence. So the
-    accession is only trusted when the record says it came from MEDLINE.
+
+def _pmid_from(record):
+    """Return the record's PubMed ID if it looks like one.
+
+    Ovid puts the PubMed ID in the ID tag for both MEDLINE and Embase records,
+    and the database's own accession in AN — an Embase accession is not a
+    PubMed ID and is never treated as one. Anything non-numeric is ignored so
+    a platform that reuses ID for its own key cannot introduce a false match.
     """
-    if record.get("pmid"):
-        return record["pmid"]
-    database = record.get("database", "").lower()
-    if "medline" in database or "pubmed" in database:
-        return record.get("accession", "")
+    pmid = record.get("pmid", "").strip()
+    if pmid.isdigit():
+        return pmid
     return ""
 
 
@@ -145,7 +154,7 @@ def build_index(records):
         if record["pmid"]:
             pmids.add(record["pmid"])
         if record["doi"]:
-            dois.add(record["doi"].strip().lower())
+            dois.add(normalize_doi(record["doi"]))
         title = normalize_title(record["title"])
         if title:
             titles.add(title)
@@ -156,7 +165,7 @@ def match_reason(record, index):
     """Return how this record matches the reference set, or None if it is new."""
     if record["pmid"] and record["pmid"] in index["pmid"]:
         return "pmid"
-    doi = record["doi"].strip().lower()
+    doi = normalize_doi(record["doi"])
     if doi and doi in index["doi"]:
         return "doi"
     title = normalize_title(record["title"])
