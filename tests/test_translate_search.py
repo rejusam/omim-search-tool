@@ -216,12 +216,49 @@ def test_run_writes_every_expected_file(tmp_path):
     assert names == [
         "INSTRUCTIONS.md",
         "cinahl.txt",
+        "cinahl_selfcontained.txt",
         "ovid_embase.txt",
+        "ovid_embase_selfcontained.txt",
         "ovid_medline.txt",
+        "ovid_medline_selfcontained.txt",
         "scopus.txt",
+        "scopus_selfcontained.txt",
         "search_summary.json",
         "term_normalization.csv",
     ]
+
+
+def test_selfcontained_query_carries_the_phenotype_filter():
+    query = translate_search.render_selfcontained_query(
+        "scopus", ["a b"], ["vestibulopathy"]
+    )
+    assert query == 'TITLE-ABS-KEY("a b") AND TITLE-ABS-KEY("vestibulopathy")'
+
+
+def test_selfcontained_query_uses_the_dialect_and_word():
+    query = translate_search.render_selfcontained_query(
+        "ovid_medline", ["a b"], ["vestibulopathy"]
+    )
+    assert query == '("a b").mp. and ("vestibulopathy").mp.'
+
+
+def test_selfcontained_file_has_one_query_per_block_and_no_set_numbers():
+    text = translate_search.render_selfcontained_file(
+        "scopus", [["a"], ["b"]], ["vestibulopathy"], "kept_terms.csv",
+        "2026-07-29",
+    )
+    assert "--- QUERY 1 of 2 ---" in text
+    assert "--- QUERY 2 of 2 ---" in text
+    assert "#1" not in text
+    assert "COMBINE" not in text
+
+
+def test_selfcontained_file_raises_when_a_query_exceeds_max_chars():
+    with pytest.raises(translate_search.BlockTooLongError):
+        translate_search.render_selfcontained_file(
+            "scopus", [["a"]], ["vestibulopathy"], "kept_terms.csv",
+            "2026-07-29", max_chars=10,
+        )
 
 
 def test_run_writes_normalized_terms_into_the_queries(tmp_path):

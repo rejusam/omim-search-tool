@@ -207,6 +207,49 @@ def render_file(name, blocks, phenotype_terms, source_name, generated,
     return "\n".join(lines) + "\n"
 
 
+def render_selfcontained_query(name, block, phenotype_terms):
+    """Render one block already intersected with the phenotype filter."""
+    dialect = DIALECTS[name]
+    joiner = " " + dialect["and_word"] + " "
+    return (render_block(name, block) + joiner +
+            render_block(name, phenotype_terms))
+
+
+def render_selfcontained_file(name, blocks, phenotype_terms, source_name,
+                              generated, max_chars=DEFAULT_MAX_CHARS):
+    """Render queries that need no search history: each carries the filter.
+
+    The set-reference form in render_file depends on the platform resolving
+    "#1 OR #2 ..." against its search history. Scopus read those references as
+    ordinary text and returned its whole database, and its Combine queries
+    screen offers no parentheses, so mixed AND/OR there cannot be checked.
+    These queries are each a single parenthesised expression instead: nothing
+    depends on set numbers, and their union is the same set.
+    """
+    dialect = DIALECTS[name]
+    total = len(blocks)
+    lines = [
+        dialect["title"] + " - OMIM completeness search (self-contained queries)",
+        "Generated " + generated + " from " + source_name,
+        "Each query below already includes the phenotype filter. Run all " +
+        str(total) + ", export each, and let Covidence remove the duplicates.",
+        "No search history or set numbers are used, so the order does not matter.",
+        "",
+    ]
+    number = 1
+    for block in blocks:
+        query = render_selfcontained_query(name, block, phenotype_terms)
+        _check_length(query, name, number, max_chars)
+        lines.append("--- QUERY " + str(number) + " of " + str(total) + " ---")
+        lines.append(query)
+        lines.append("")
+        number = number + 1
+    lines.append("Every query returns its own set. Export each one before")
+    lines.append("moving to the next; the same paper matching two blocks is")
+    lines.append("expected and is removed on import.")
+    return "\n".join(lines) + "\n"
+
+
 def _check_length(query, name, number, max_chars):
     """Refuse to write a block long enough to be truncated on paste."""
     if len(query) > max_chars:
@@ -231,6 +274,10 @@ so it is split into blocks that are combined afterwards by set number.
 | File | Database | Where to paste it |
 |---|---|---|
 {table}
+
+Each database also has a `<database>_selfcontained.txt`. Use those instead if
+your platform does not resolve set references — see "If the set numbers do not
+work" at the end.
 
 ## How to run each database
 
@@ -258,6 +305,27 @@ so it is split into blocks that are combined afterwards by set number.
   paste was truncated — re-paste that block on its own.
 - The same search in PubMed returned 559 records. A final set of a wildly
   different order of magnitude is worth checking before exporting.
+
+## If the set numbers do not work
+
+Some platforms do not resolve typed set references. In Scopus, pasting
+"#1 OR #2 OR ..." returned the entire database — over 100 million records —
+because the references were read as ordinary text rather than as earlier
+searches. Intersecting that with the phenotype set would have produced a
+believable-looking number containing none of the condition terms.
+
+Two signs it has happened: the OR line returns a number far larger than any
+single block, or the final set exactly equals the phenotype block's count.
+
+Use `<database>_selfcontained.txt` instead. Each query there already contains
+the phenotype filter, so nothing depends on set numbers. Run all {blocks},
+export each one as RIS with abstracts, and import them all into the same
+Covidence review — a paper matching two blocks appears twice and is removed on
+import. The union is the same set the COMBINE lines were meant to produce.
+
+Avoid a "combine queries" screen that offers no parentheses: a strip such as
+"9 OR 8 OR ... OR 1 AND 10" depends on the platform's operator precedence, and
+if AND binds tighter the filter applies to only one block.
 
 ## Notes
 
@@ -325,6 +393,13 @@ def write_pack(folder, blocks, phenotype_terms, rows, source_name, generated,
         text = render_file(name, blocks, phenotype_terms, source_name, generated,
                            max_chars=max_chars)
         (folder / DIALECTS[name]["filename"]).write_text(text, encoding="utf-8")
+        selfcontained = render_selfcontained_file(
+            name, blocks, phenotype_terms, source_name, generated,
+            max_chars=max_chars
+        )
+        (folder / (name + "_selfcontained.txt")).write_text(
+            selfcontained, encoding="utf-8"
+        )
         lengths = []
         for block in blocks:
             lengths.append(len(render_block(name, block)))
