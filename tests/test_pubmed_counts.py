@@ -1,0 +1,263 @@
+import pathlib
+
+import openpyxl
+import pytest
+import requests
+
+import pubmed_counts
+
+
+def _make_xlsx(tmp_path, values):
+    workbook = openpyxl.Workbook()
+    sheet = workbook.active
+    for row_index, value in enumerate(values, start=1):
+        sheet.cell(row=row_index, column=1, value=value)
+    path = tmp_path / "terms.xlsx"
+    workbook.save(path)
+    return path
+
+
+def test_read_terms_from_xlsx_first_column(tmp_path):
+    path = _make_xlsx(tmp_path, ["ABETALIPOPROTEINEMIA", "", "  ACONITASE 2  "])
+    terms = pubmed_counts.read_terms(path)
+    assert terms == ["ABETALIPOPROTEINEMIA", "ACONITASE 2"]
+
+
+def test_read_terms_from_csv_first_column(tmp_path):
+    path = tmp_path / "terms.csv"
+    path.write_text("ABETALIPOPROTEINEMIA\nACONITASE 2\n", encoding="utf-8")
+    terms = pubmed_counts.read_terms(path)
+    assert terms == ["ABETALIPOPROTEINEMIA", "ACONITASE 2"]
+
+
+def test_normalize_term_replaces_hyphens_with_spaces():
+    assert pubmed_counts.normalize_term("ACHALASIA-PROGEROID SYNDROME") == "ACHALASIA PROGEROID SYNDROME"
+
+
+def test_normalize_term_collapses_and_trims_whitespace():
+    assert pubmed_counts.normalize_term("  YUNIS--VARON   SYNDROME ") == "YUNIS VARON SYNDROME"
+
+
+def test_normalize_term_leaves_plain_term_unchanged():
+    assert pubmed_counts.normalize_term("ABETALIPOPROTEINEMIA") == "ABETALIPOPROTEINEMIA"
+
+
+def test_pubmed_url_encodes_the_query():
+    url = pubmed_counts.pubmed_url("ACONITASE 2")
+    assert url == "https://pubmed.ncbi.nlm.nih.gov/?term=ACONITASE+2"
+
+
+class _FakeResponse:
+    def __init__(self, status_code, payload):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _FakeSession:
+    def __init__(self, responses):
+        self._responses = list(responses)
+        self.calls = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        self.calls.append(params)
+        return self._responses.pop(0)
+
+
+def test_parse_count_reads_the_number():
+    payload = {"esearchresult": {"count": "1240", "idlist": []}}
+    assert pubmed_counts.parse_count(payload) == 1240
+
+
+def test_parse_count_raises_on_error_payload():
+    payload = {"esearchresult": {"ERROR": "Invalid db name"}}
+    with pytest.raises(pubmed_counts.PubMedError):
+        pubmed_counts.parse_count(payload)
+
+
+def test_client_count_sends_query_and_returns_number():
+    session = _FakeSession([_FakeResponse(200, {"esearchresult": {"count": "5"}})])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    result = client.count('"ACONITASE 2"')
+    assert result == 5
+    assert session.calls[0]["term"] == '"ACONITASE 2"'
+    assert session.calls[0]["retmax"] == 0
+    assert session.calls[0]["email"] == "x@example.com"
+
+
+def test_client_uses_faster_pause_with_api_key():
+    no_key = pubmed_counts.PubMedClient(email="x@example.com")
+    with_key = pubmed_counts.PubMedClient(email="x@example.com", api_key="abc")
+    assert no_key.pause_seconds == 0.34
+    assert with_key.pause_seconds == 0.11
+
+
+def test_client_retries_server_error_then_raises():
+    session = _FakeSession([
+        _FakeResponse(503, {}),
+        _FakeResponse(503, {}),
+        _FakeResponse(503, {}),
+    ])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    with pytest.raises(pubmed_counts.PubMedError):
+        client.count("anything")
+    assert len(session.calls) == 3
+
+
+def test_client_does_not_retry_client_error():
+    session = _FakeSession([
+        _FakeResponse(400, {}),
+        _FakeResponse(200, {"esearchresult": {"count": "5"}}),
+    ])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    with pytest.raises(pubmed_counts.PubMedError):
+        client.count("anything")
+    assert len(session.calls) == 1
+
+
+def test_client_retries_rate_limit_then_succeeds():
+    session = _FakeSession([
+        _FakeResponse(429, {}),
+        _FakeResponse(200, {"esearchresult": {"count": "7"}}),
+    ])
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    assert client.count("anything") == 7
+    assert len(session.calls) == 2
+
+
+def test_client_retries_network_error_then_raises():
+    class _AlwaysFails:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.calls = self.calls + 1
+            raise requests.exceptions.ConnectionError("boom")
+
+    session = _AlwaysFails()
+    client = pubmed_counts.PubMedClient(
+        email="x@example.com", session=session, sleep=lambda seconds: None
+    )
+    with pytest.raises(pubmed_counts.PubMedError):
+        client.count("anything")
+    assert session.calls == 3
+
+
+def test_load_ncbi_config_reads_email_and_key(tmp_path):
+    config = tmp_path / "config.ini"
+    config.write_text("[ncbi]\nemail = a@b.com\napi_key = k123\n", encoding="utf-8")
+    email, api_key = pubmed_counts.load_ncbi_config(config)
+    assert email == "a@b.com"
+    assert api_key == "k123"
+
+
+def test_load_ncbi_config_missing_returns_none(tmp_path):
+    config = tmp_path / "config.ini"
+    email, api_key = pubmed_counts.load_ncbi_config(config)
+    assert email is None
+    assert api_key is None
+
+
+def test_save_ncbi_config_preserves_omim_section(tmp_path):
+    config = tmp_path / "config.ini"
+    config.write_text("[omim]\napi_key = omimkey\n", encoding="utf-8")
+    pubmed_counts.save_ncbi_config(config, "a@b.com", "")
+    email, api_key = pubmed_counts.load_ncbi_config(config)
+    assert email == "a@b.com"
+    assert api_key is None
+    text = config.read_text(encoding="utf-8")
+    assert "omimkey" in text
+
+
+def test_make_row_holds_term_count_and_normalized_search():
+    row = pubmed_counts.make_row("ACHALASIA-PROGEROID SYNDROME", 3)
+    assert row["term"] == "ACHALASIA-PROGEROID SYNDROME"
+    assert row["count"] == 3
+    assert row["search_term"] == "ACHALASIA PROGEROID SYNDROME"
+    assert row["url"] == pubmed_counts.pubmed_url("ACHALASIA PROGEROID SYNDROME")
+
+
+def test_make_row_keeps_error_count():
+    row = pubmed_counts.make_row("X", "error")
+    assert row["count"] == "error"
+
+
+def test_write_run_creates_both_files(tmp_path):
+    rows = [pubmed_counts.make_row("ACONITASE 2", 50)]
+    info = {"Input file": "terms.xlsx", "Run complete": "yes"}
+    pubmed_counts.write_run(tmp_path, rows, info)
+    assert (tmp_path / "counts.xlsx").exists()
+    assert (tmp_path / "counts.csv").exists()
+    text = (tmp_path / "counts.csv").read_text(encoding="utf-8-sig")
+    assert "ACONITASE 2" in text
+    assert "term,count,search_term,url" in text
+
+
+def test_write_xlsx_sheets_headers_and_hyperlink(tmp_path):
+    row = pubmed_counts.make_row("ACONITASE 2", 50)
+    pubmed_counts.write_run(tmp_path, [row], {"Run complete": "yes"})
+    workbook = openpyxl.load_workbook(tmp_path / "counts.xlsx")
+    assert workbook.sheetnames == ["Counts", "Run info"]
+    counts = workbook["Counts"]
+    header = [cell.value for cell in counts[1]]
+    assert header == ["term", "count", "search_term", "url"]
+    url_cell = counts.cell(row=2, column=4)
+    assert url_cell.hyperlink is not None
+    assert url_cell.value == row["url"]
+
+
+class _ScriptedClient:
+    """Returns queued counts in call order; a PubMedError value raises."""
+
+    def __init__(self, counts):
+        self._counts = list(counts)
+        self.pause_seconds = 0.0
+
+    def count(self, query):
+        value = self._counts.pop(0)
+        if isinstance(value, Exception):
+            raise value
+        return value
+
+
+def test_count_terms_one_count_per_term():
+    client = _ScriptedClient([3, 900000])
+    rows = pubmed_counts.count_terms(client, ["ACONITASE 2", "ACHALASIA PROGEROID SYNDROME"])
+    assert rows[0]["count"] == 3
+    assert rows[1]["count"] == 900000
+
+
+def test_count_terms_records_error_and_continues():
+    client = _ScriptedClient([pubmed_counts.PubMedError("boom"), 7])
+    rows = pubmed_counts.count_terms(client, ["BAD", "GOOD"])
+    assert rows[0]["count"] == "error"
+    assert rows[1]["count"] == 7
+
+
+def test_run_honors_config_path_and_writes_output(tmp_path, monkeypatch):
+    config = tmp_path / "config.ini"
+    config.write_text("[ncbi]\nemail = a@b.com\n", encoding="utf-8")
+    terms_file = tmp_path / "terms.csv"
+    terms_file.write_text("ACONITASE 2\n", encoding="utf-8")
+    results_dir = tmp_path / "results"
+
+    scripted = _ScriptedClient([50])
+    monkeypatch.setattr(pubmed_counts, "PubMedClient", lambda **kwargs: scripted)
+
+    folder = pubmed_counts.run(terms_file, config_path=config, results_dir=results_dir)
+
+    assert folder is not None
+    assert (folder / "counts.csv").exists()
+    assert (folder / "counts.xlsx").exists()
+    text = (folder / "counts.csv").read_text(encoding="utf-8-sig")
+    assert "ACONITASE 2" in text

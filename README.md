@@ -228,3 +228,123 @@ prompt and type your own raw query. The full query syntax — how to require
 or exclude words, search specific fields, use wildcards, and so on — is
 documented in `docs/omim-search-reference.md`. Ordinary guided searches
 (section 4) do not need any of this.
+
+## 10. Counting PubMed hits for a list of terms
+
+If you have a column of condition names and want to know how many PubMed
+articles each one finds, use the companion tool `pubmed_counts.py`. It is
+meant for triaging a long list of terms before you combine them into a real
+literature search: it shows you at a glance which terms find nothing (and
+need rewording) and which are so broad they return tens of thousands.
+
+1. Save your terms in a spreadsheet with the names in the **first column**,
+   one per row, no heading needed. An `.xlsx` or a `.csv` both work.
+2. Open Command Prompt and `cd` to this folder, as in the setup steps above.
+3. Run the tool, giving it the path to your file:
+
+   ```
+   python pubmed_counts.py my_terms.xlsx
+   ```
+
+4. The first time, it asks for a contact email. PubMed's provider (NCBI) asks
+   every tool to supply one so they can get in touch if a search misbehaves.
+   It is saved on your computer and never shared.
+5. The tool checks each term and saves a spreadsheet in the `results` folder
+   with four columns:
+   - **term** — the name exactly as it was in your file.
+   - **count** — how many PubMed articles that term finds.
+   - **search_term** — what was actually searched. Hyphens are turned into
+     spaces first (see the note below), so this can differ slightly from your
+     original term.
+   - **url** — a link you can click to open that search in PubMed and check it.
+
+   To triage, sort by **count**: a count of `0` means the term found nothing
+   and should be reworded; a very large count usually means the term is too
+   broad. A count shown as `error` means that one term could not be checked;
+   the rest of the run is unaffected.
+
+**Why hyphens are removed.** A hyphen inside a term can confuse PubMed into
+dropping all but one word — for example `ACHALASIA-PROGEROID SYNDROME`
+searched as-is returns over a million hits, because PubMed ends up searching
+for just "syndrome". Searched as `ACHALASIA PROGEROID SYNDROME` it correctly
+returns 3. The tool makes this substitution for you and shows the exact text
+it searched in the **search_term** column.
+
+**What the count can and can't tell you.** The count is only ever as good as
+the search term. Long descriptive condition names are really catalogue labels,
+not search phrases, so a `0` or a huge count usually says more about the
+*wording* than about how much has actually been published. Treat the tool as a
+way to sort your list into "ready to use" and "needs a tidier name" — the
+rewording itself is a judgement call. A few terms misbehave even after the
+hyphen fix, and they stand out at the top or bottom when you sort by count:
+
+- An unusual abbreviation the term relies on (for example `DEEAH SYNDROME`)
+  can collapse the same way a hyphen does, because PubMed does not recognise
+  the abbreviation and falls back to the common word.
+- A name phrased "…with or without…" gets inflated, because PubMed reads the
+  word "or" as a search command rather than part of the name.
+
+In every case the **search_term** and **url** columns let you see and click
+exactly what was searched, so these are easy to spot and check.
+
+Counting a few hundred terms takes several minutes. That is normal — the tool
+deliberately paces itself to stay within PubMed's fair-use limits. If you have
+an NCBI API key you can add it to `config.ini` under an `[ncbi]` section
+(`api_key = ...`) to run about three times faster; it works fine without one.
+
+## 11. Building search strings for other databases
+
+`translate_search.py` takes the same list of condition terms and writes out the
+equivalent search for Scopus, CINAHL and Ovid, ready to paste. It is for
+whoever runs those databases by hand; it does not search anything itself.
+
+```
+python translate_search.py kept_terms.csv --skip-header
+```
+
+Use `--skip-header` when the first row of the file is a column heading rather
+than a term. Other options:
+
+- `--phenotype-file` — a text file of phenotype filter terms, one per line, to
+  use instead of the built-in vestibular/auditory filter.
+- `--max-chars` — refuse to write a block longer than this many characters
+  (default 4000), in case a database's search box truncates long pastes.
+- `--block-size` — terms per block (default 60).
+
+The tool writes a folder inside `results` called `searchpack_<date>`
+containing:
+
+- `scopus.txt`, `cinahl.txt`, `ovid_medline.txt`, `ovid_embase.txt` — the
+  search, split into numbered blocks with a COMBINE section at the end.
+- `INSTRUCTIONS.md` — where to paste each block, how to combine the blocks by
+  set number, and how to export for Covidence.
+- `term_normalization.csv` — every term as supplied and as searched, flagging
+  the few where a character was replaced with a space so the search box would
+  accept it — for example the slash in `LAMIN A/C`, or a hyphen, which is
+  replaced so the term is the exact string that was searched in PubMed.
+- `search_summary.json` — counts and block lengths, for the methods text.
+
+A search box will not accept hundreds of terms at once, so the terms are split
+into blocks of 60 — nine blocks for a list of 523 terms. Each block is pasted
+and run as its own search, and the COMBINE lines at the end of the file join
+them together and intersect the result with the phenotype filter. If a platform
+rejects a block as too long, re-run with a smaller `--block-size`.
+
+## 12. Checking which records are new
+
+When a database export comes back, `overlap_check.py` reports how many of its
+records were already found by an earlier search and how many are new.
+
+```
+python overlap_check.py scopus_export.csv --against results/pubmed_combined_search_20260728/articles.csv --out new_records.csv
+```
+
+Both files can be `.ris` or `.csv` — whatever the database gave you. Records are
+matched first on PubMed ID, then on DOI, then on the title with punctuation and
+capitals removed, so a record counts as new only if all three fail.
+
+The tool prints how many matched by each route, how many are new, and how many
+of the new ones have no PubMed ID at all — those last are the records the
+PubMed search could never have found, and they are the clearest evidence that
+searching a second database was worthwhile. With `--out` it also writes the new
+records to a spreadsheet you can read through.
