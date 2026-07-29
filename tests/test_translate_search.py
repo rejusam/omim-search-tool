@@ -89,7 +89,7 @@ def test_every_term_appears_in_exactly_one_rendered_block():
 
 
 def test_render_block_scopus_uses_all_field_and_uppercase_or():
-    assert translate_search.render_block("scopus", ["a b", "c"]) == 'ALL("a b" OR "c")'
+    assert translate_search.render_block("scopus", ["a b", "c"]) == 'TITLE-ABS-KEY("a b" OR "c")'
 
 
 def test_render_block_cinahl_uses_tx_field():
@@ -127,7 +127,7 @@ def test_render_file_has_a_block_header_per_block_plus_phenotype():
     assert "--- BLOCK 1 of 3 (condition terms) ---" in text
     assert "--- BLOCK 2 of 3 (condition terms) ---" in text
     assert "--- BLOCK 3 of 3 (phenotype filter) ---" in text
-    assert 'ALL("vestibulopathy")' in text
+    assert 'TITLE-ABS-KEY("vestibulopathy")' in text
     assert "#3 AND #2" not in text
     assert "#1 OR #2" in text
     assert "#4 AND #3" in text
@@ -231,7 +231,7 @@ def test_run_writes_normalized_terms_into_the_queries(tmp_path):
         terms_file, results_dir=tmp_path / "results", generated="2026-07-29"
     )
     text = (folder / "scopus.txt").read_text(encoding="utf-8")
-    assert 'ALL("LAMIN A C")' in text
+    assert 'TITLE-ABS-KEY("LAMIN A C")' in text
     assert "LAMIN A/C" not in text
 
 
@@ -302,7 +302,7 @@ def test_run_uses_a_custom_phenotype_file(tmp_path):
     )
 
     text = (folder / "scopus.txt").read_text(encoding="utf-8")
-    assert 'ALL("custom filter term")' in text
+    assert 'TITLE-ABS-KEY("custom filter term")' in text
     assert "auditory neuropathy" not in text
 
 
@@ -318,7 +318,7 @@ def test_run_normalizes_phenotype_terms_like_condition_terms(tmp_path):
     )
 
     text = (folder / "scopus.txt").read_text(encoding="utf-8")
-    assert 'ALL("CHARCOT MARIE TOOTH filter")' in text
+    assert 'TITLE-ABS-KEY("CHARCOT MARIE TOOTH filter")' in text
 
 
 def test_run_raises_on_an_empty_phenotype_file(tmp_path):

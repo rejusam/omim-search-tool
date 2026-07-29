@@ -112,7 +112,7 @@ DIALECTS = {
     "scopus": {
         "title": "Scopus",
         "filename": "scopus.txt",
-        "format": "ALL({terms})",
+        "format": "TITLE-ABS-KEY({terms})",
         "set_prefix": "#",
         "or_word": "OR",
         "and_word": "AND",
@@ -263,8 +263,11 @@ so it is split into blocks that are combined afterwards by set number.
 
 - Terms are quoted phrases, searched as free text with no subject headings, so
   that all databases stay comparable with the PubMed run.
-- Scopus searches ALL fields, which includes cited references, so the Scopus set
-  will be noisier than the others. That is expected and is removed at screening.
+- Scopus is searched with TITLE-ABS-KEY rather than ALL. Scopus's ALL field also
+  matches a paper's cited references, so it retrieves papers that merely cite a
+  matching title - PubMed's all-fields search does not do this, and a trial run
+  returned 500,000 records for a single block. TITLE-ABS-KEY is the closer match
+  to what PubMed searched.
 - A few catalogue titles contained characters that break a search parser, such
   as the slash in "LAMIN A/C", or hyphens, which were replaced with spaces so
   that every term here is the exact string that was searched in PubMed. Every

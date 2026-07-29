@@ -72,15 +72,22 @@ text.
 
 | Database | Block form | Combine |
 |---|---|---|
-| Scopus | `ALL("term1" OR "term2" ...)` | `(#1 OR ... OR #9) AND #10` |
+| Scopus | `TITLE-ABS-KEY("term1" OR "term2" ...)` | `(#1 OR ... OR #9) AND #10` |
 | CINAHL (EBSCOhost) | `TX ("term1" OR "term2" ...)` | `S1 OR ... OR S9`, then `AND S10` |
 | Ovid MEDLINE | `("term1" or "term2" ...).mp.` | `1 or 2 or ... or 9`, then `10 and 11` |
 | Ovid Embase | as Ovid MEDLINE | as Ovid MEDLINE |
 
-`ALL`, `TX` and `.mp.` are each platform's closest equivalent to the all-fields
-search PubMed ran. Scopus `ALL` also searches cited references, so the Scopus
-set will be noisier than the other three; this is noted in the instructions and
-should be noted in the methods text.
+`TX` and `.mp.` are each platform's closest equivalent to the all-fields search
+PubMed ran.
+
+Scopus is the exception. Its `ALL` field looked like the parity choice but is
+not: `ALL` also matches a paper's cited references, which PubMed's all-fields
+search does not, so it retrieves papers that merely cite something with a
+matching title. A trial run of one 60-term block returned 504,636 records,
+including papers with no connection to the subject. Scopus is therefore searched
+with `TITLE-ABS-KEY`, which is both the closer match to the PubMed run and the
+conventional field for a systematic review search in Scopus. The methods text
+should say so.
 
 ### Blocking
 
