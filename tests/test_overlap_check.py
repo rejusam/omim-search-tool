@@ -148,3 +148,24 @@ def test_main_reports_a_missing_file(tmp_path, capsys):
     ])
     assert code == 1
     assert "No such file" in capsys.readouterr().out
+
+
+def test_read_ris_export_uses_the_ovid_id_tag_as_pmid_for_medline(tmp_path):
+    path = tmp_path / "medline.ris"
+    path.write_text(
+        "TY  - JOUR\nDB  - Ovid MEDLINE(R) 1946-Present\nID  - 32672909\n"
+        "T1  - SPTBN4 Disorder.\nY1  - 1993//\nER  - \n",
+        encoding="utf-8",
+    )
+    records = overlap_check.read_export(path)
+    assert records[0]["pmid"] == "32672909"
+
+
+def test_read_ris_export_ignores_the_id_tag_for_embase(tmp_path):
+    path = tmp_path / "embase.ris"
+    path.write_text(
+        "TY  - JOUR\nDB  - Embase\nID  - 32672909\nT1  - A paper.\nER  - \n",
+        encoding="utf-8",
+    )
+    records = overlap_check.read_export(path)
+    assert records[0]["pmid"] == ""

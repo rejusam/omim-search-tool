@@ -76,7 +76,25 @@ RIS_TAGS = {
     "T2": "source",
     "JF": "source",
     "AN": "pmid",
+    "DB": "database",
+    "ID": "accession",
 }
+
+
+def _pmid_from(record):
+    """Return the accession as a PubMed ID, but only when it is one.
+
+    Ovid puts the record's accession number in the ID tag. In a MEDLINE export
+    that accession is the PubMed ID; in an Embase export it is an Embase
+    number, which would match an unrelated PubMed ID by coincidence. So the
+    accession is only trusted when the record says it came from MEDLINE.
+    """
+    if record.get("pmid"):
+        return record["pmid"]
+    database = record.get("database", "").lower()
+    if "medline" in database or "pubmed" in database:
+        return record.get("accession", "")
+    return ""
 
 
 def read_ris_export(path):
@@ -92,7 +110,7 @@ def read_ris_export(path):
             if tag == "ER":
                 if current:
                     records.append(_record(
-                        current.get("pmid", ""), current.get("doi", ""),
+                        _pmid_from(current), current.get("doi", ""),
                         current.get("title", ""), current.get("year", ""),
                         current.get("source", ""),
                     ))
@@ -103,7 +121,7 @@ def read_ris_export(path):
                 current[field] = value
     if current:
         records.append(_record(
-            current.get("pmid", ""), current.get("doi", ""),
+            _pmid_from(current), current.get("doi", ""),
             current.get("title", ""), current.get("year", ""),
             current.get("source", ""),
         ))
